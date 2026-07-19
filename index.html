@@ -166,6 +166,9 @@ const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 
 const won = (n) => (Number(n) || 0).toLocaleString() + "원";
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const digits = (s) => String(s || "").replace(/\D/g, "");
+// 전화번호 비교용 정규화: 맨앞 0이 있든 없든 동일하게 취급
+// (예전에 숫자로 저장돼 앞 0이 사라진 데이터도 매칭되도록)
+const phoneKey = (s) => { let d = digits(s); return d.replace(/^0+/, ""); };
 const methodLabel = (m) => m === "pickup" ? "🚗 직접 방문" : m === "church" ? "⛪ 교회 수령" : "🚚 택배 배송";
 
 // 장바구니에 담기 전 "지금 담는 항목" 편집 폼
@@ -205,7 +208,7 @@ let STATE = {
   loaded: false,
   loadError: "",
   saveError: "",
-  adminTab: "fruits",
+  adminTab: "orders",
   fruitForm: { name: "", price: "", stock: "", image: "" },
   accountForm: null,
   availForm: { date: "", start: "09:00", end: "18:00" },
@@ -311,7 +314,7 @@ function renderOrderArea(){
 
 function renderLanding(){
   return `<div class="landing">
-    <button class="landing-btn" data-action="startNew"><span class="emoji">🧺</span><span><span class="title">새 주문</span><br/><span class="desc">새 주문하시는 분은 여기를 눌러주세요</span></span></button>
+    <button class="landing-btn" data-action="startNew"><span class="emoji">🧺</span><span><span class="title">새 주문</span><br/><span class="desc">새로 주문하시는 분은 여기를 눌러주세요</span></span></button>
     <button class="landing-btn" data-action="startEdit"><span class="emoji">✏️</span><span><span class="title">주문 변경</span><br/><span class="desc">이미 넣은 주문을 확인하거나 수정해요</span></span></button>
   </div>`;
 }
@@ -509,15 +512,15 @@ function renderAdminArea(){
   const modCount = STATE.orders.filter(o=>o.modified).length;
   const countHtml = modCount>0 ? `주문 확인 (<span class="count-alert">${STATE.orders.length}</span>)` : `주문 확인 (${STATE.orders.length})`;
   return `<div class="mini-tabs">
+    <button class="mini-tab ${STATE.adminTab==="orders"?"active":""}" data-action="setAdminTab" data-v="orders">${countHtml}</button>
     <button class="mini-tab ${STATE.adminTab==="fruits"?"active":""}" data-action="setAdminTab" data-v="fruits">과일 관리</button>
     <button class="mini-tab ${STATE.adminTab==="avail"?"active":""}" data-action="setAdminTab" data-v="avail">상주 일정</button>
     <button class="mini-tab ${STATE.adminTab==="account"?"active":""}" data-action="setAdminTab" data-v="account">가게 설정</button>
-    <button class="mini-tab ${STATE.adminTab==="orders"?"active":""}" data-action="setAdminTab" data-v="orders">${countHtml}</button>
   </div>
+  ${STATE.adminTab==="orders"?renderOrderManager():""}
   ${STATE.adminTab==="fruits"?renderFruitManager():""}
   ${STATE.adminTab==="avail"?renderAvailManager():""}
-  ${STATE.adminTab==="account"?renderAccountManager():""}
-  ${STATE.adminTab==="orders"?renderOrderManager():""}`;
+  ${STATE.adminTab==="account"?renderAccountManager():""}`;
 }
 
 function renderPinGate(){
@@ -770,7 +773,7 @@ async function lookupOrders(){
   const idn=STATE.identify;
   if(!idn.name.trim()||!digits(idn.phone)){ STATE.identify.error="이름과 연락처를 모두 입력해주세요."; render(); return; }
   await loadAll(true);
-  const mine=STATE.orders.filter(o=>String(o.name).trim()===idn.name.trim() && digits(o.phone)===digits(idn.phone));
+  const mine=STATE.orders.filter(o=>String(o.name).trim()===idn.name.trim() && phoneKey(o.phone)===phoneKey(idn.phone));
   if(!mine.length){ STATE.identify.error="입력하신 정보로 등록된 주문을 찾지 못했어요. 이름/연락처를 다시 확인해주세요."; render(); return; }
   setState({myOrders:mine,orderStep:"editList",identify:{...idn,error:""}});
 }
