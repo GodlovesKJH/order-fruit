@@ -213,7 +213,8 @@ let STATE = {
   fruitForm: { name: "", price: "", stock: "", image: "" },
   accountForm: null,
   availForm: { date: "", start: "09:00", end: "18:00" },
-  editFruit: null, // 과일 수정 모달 대상 {id,name,price,stock,image}
+  editFruit: null, // 과일 수정 모달 대상
+  editOrderItem: null, // 관리자 주문 품목 수정 모달 {orderId, itemId, ...필드}
 };
 
 function setState(patch){ STATE = { ...STATE, ...patch }; render(); }
@@ -752,7 +753,13 @@ function renderOrderManager(){
           : it.deliveryMethod==="church" ? `교회수령 ${esc(it.churchDate)}`
           : (it.address?`주소: ${esc(it.address)}`:"주소 미입력");
         const gift = it.isGift?` · 🎁 ${esc(it.receiverName)}${it.receiverPhone?"("+esc(it.receiverPhone)+")":""}${it.giftArrivalDate?` 도착희망 ${esc(it.giftArrivalDate)}`:""}`:"";
-        return `<div class="order-item-line"><b>${esc(it.fruitName)} × ${it.qty}</b> — ${methodLabel(it.deliveryMethod)} · <span class="tabular">${won(it.totalAmount??0)}</span>${it.delivered?` <span style="color:var(--forest);font-weight:700;">✅발송</span>`:""}${it.prepared?` <span style="color:var(--forest);font-weight:700;">✅준비</span>`:""}<br/><span style="color:var(--inkSoft);">${extra}${gift}</span></div>`;
+        const changed = it.itemModifiedAt && (it.origQty!==undefined);
+        const changeLine = changed ? `<div style="font-size:11.5px;color:var(--alert);margin-top:3px;">
+            변경: 수량 ${it.origQty}→${it.qty} · 금액 ${won(it.origTotalAmount)}→${won(it.totalAmount??0)}${(it.origSched||"")!==(schedDate(it.deliveryMethod,o,it)||"")?` · 일정 ${esc(it.origSched||"-")}→${esc(schedDate(it.deliveryMethod,o,it)||"-")}`:""}<br/>수정: ${new Date(it.itemModifiedAt).toLocaleString("ko-KR")}
+          </div>` : "";
+        return `<div class="order-item-line"><b>${esc(it.fruitName)} × ${it.qty}</b> — ${methodLabel(it.deliveryMethod)} · <span class="tabular">${won(it.totalAmount??0)}</span>${it.delivered?` <span style="color:var(--forest);font-weight:700;">✅발송</span>`:""}${it.prepared?` <span style="color:var(--forest);font-weight:700;">✅준비</span>`:""}
+          <button class="btn-ghost" style="font-size:11px;padding:3px 8px;min-height:26px;margin-left:6px;" data-action="openEditOrderItem" data-oid="${esc(o.id)}" data-iid="${esc(it.itemId)}">✏️ 수정</button>
+          <br/><span style="color:var(--inkSoft);">${extra}${gift}</span>${changeLine}</div>`;
       }).join("")}
       <div class="meta">${new Date(o.createdAt).toLocaleString("ko-KR")}${o.modifiedAt?` · <span style="color:var(--alert);">수정: ${new Date(o.modifiedAt).toLocaleString("ko-KR")}</span>`:""}</div>
       <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;align-items:center;">
@@ -770,6 +777,7 @@ function renderOrderManager(){
 /* ---------------- Modal (fruit edit) ---------------- */
 function renderModal(){
   const root=document.getElementById("modal-root");
+  if(STATE.editOrderItem){ root.innerHTML=renderEditOrderItemModal(); return; }
   if(!STATE.editFruit){ root.innerHTML=""; return; }
   const ef=STATE.editFruit;
   root.innerHTML=`<div class="modal-overlay" data-action="closeEditFruit"><div class="modal" data-stop="1">
@@ -783,6 +791,54 @@ function renderModal(){
     <div class="field"><div class="field-head"><label class="field-label">재고</label><span class="hint">비우면 재고 표시 안 함</span></div><input class="input" type="number" inputmode="numeric" data-bind="editFruitStock" value="${ef.stock??""}" /></div>
     <button class="btn-primary" data-action="saveEditFruit">저장</button>
     <button class="btn-ghost" style="width:100%;margin-top:10px;" data-action="closeEditFruit">취소</button>
+  </div></div>`;
+}
+
+function renderEditOrderItemModal(){
+  const m=STATE.editOrderItem;
+  const activeFruits=STATE.fruits;
+  const price=(fruitById(m.fruitId)||{}).price||0;
+  const amount=price*(parseInt(m.qty)||0);
+  const shipping=m.deliveryMethod==="delivery"?((parseInt(m.qty)||0)>=CONFIG.FREE_SHIPPING_BOX_COUNT?0:CONFIG.SHIPPING_FEE):0;
+  const dates=availableDates();
+  const slots=m.visitDate?timeSlots(m.visitDate):[];
+  return `<div class="modal-overlay" data-action="closeEditOrderItem"><div class="modal" data-stop="1">
+    <div class="display" style="font-size:18px;color:var(--forest);margin-bottom:6px;">품목 수정 (관리자)</div>
+    <div style="font-size:12px;color:var(--inkSoft);margin-bottom:14px;">작황·일정 조정 시 사용. 저장하면 변경 이력이 남고, 주문자에게 문자로 알릴 수 있어요.</div>
+
+    <div class="field"><div class="field-head"><label class="field-label">과일</label></div>
+      <select class="input" data-bind="eoiFruit">${activeFruits.map(f=>`<option value="${esc(f.id)}" ${f.id===m.fruitId?"selected":""}>${esc(f.name)} (${won(f.price)})</option>`).join("")}</select></div>
+
+    <div class="field"><div class="field-head"><label class="field-label">수량</label></div>
+      <input class="input tabular" type="number" inputmode="numeric" min="1" data-bind="eoiQty" value="${esc(m.qty)}" /></div>
+
+    <div class="field"><div class="field-head"><label class="field-label">수령 방법</label></div>
+      <select class="input" data-bind="eoiMethod">
+        <option value="delivery" ${m.deliveryMethod==="delivery"?"selected":""}>택배 배송</option>
+        <option value="pickup" ${m.deliveryMethod==="pickup"?"selected":""}>직접 방문</option>
+        <option value="church" ${m.deliveryMethod==="church"?"selected":""}>교회 수령</option>
+      </select></div>
+
+    ${m.deliveryMethod==="delivery"?`
+      <div class="field"><div class="field-head"><label class="field-label">배송 희망일</label><span class="hint">선택</span></div><input class="input" type="date" data-bind="eoiGiftArrival" value="${esc(m.giftArrivalDate||"")}" /></div>`:""}
+    ${m.deliveryMethod==="pickup"?`
+      <div class="field"><div class="field-head"><label class="field-label">방문 날짜</label></div>
+        ${dates.length?`<select class="input" data-bind="eoiVisitDate"><option value="">날짜 선택</option>${dates.map(d=>`<option value="${d}" ${m.visitDate===d?"selected":""}>${d}</option>`).join("")}</select>`
+          :`<input class="input" type="date" data-bind="eoiVisitDate" value="${esc(m.visitDate||"")}" />`}</div>
+      <div class="field"><div class="field-head"><label class="field-label">방문 시간</label></div>
+        ${dates.length?`<select class="input" data-bind="eoiVisitTime" ${!m.visitDate?"disabled":""}><option value="">시간</option>${slots.map(s=>`<option value="${s}" ${m.visitTime===s?"selected":""}>${s}</option>`).join("")}</select>`
+          :`<input class="input" type="time" data-bind="eoiVisitTime" value="${esc(m.visitTime||"")}" />`}</div>`:""}
+    ${m.deliveryMethod==="church"?`
+      <div class="field"><div class="field-head"><label class="field-label">교회 수령일</label></div><input class="input" type="date" data-bind="eoiChurchDate" value="${esc(m.churchDate||"")}" /></div>`:""}
+
+    <div class="summary-box" style="margin-bottom:14px;">
+      <div class="summary-row"><span>과일 금액</span><span class="tabular">${won(amount)}</span></div>
+      <div class="summary-row" style="color:var(--inkSoft);"><span>택배비</span><span class="tabular">${m.deliveryMethod==="delivery"?won(shipping):"해당 없음"}</span></div>
+      <div class="summary-row summary-total"><span>합계</span><span class="tabular">${won(amount+shipping)}</span></div>
+    </div>
+
+    <button class="btn-primary" data-action="saveEditOrderItem">저장</button>
+    <button class="btn-ghost" style="width:100%;margin-top:10px;" data-action="closeEditOrderItem">취소</button>
   </div></div>`;
 }
 
@@ -820,6 +876,16 @@ function onBind(e){
   if(key==="editFruitName") STATE.editFruit.name=val;
   if(key==="editFruitPrice") STATE.editFruit.price=val;
   if(key==="editFruitStock") STATE.editFruit.stock=val===""?null:val;
+  if(STATE.editOrderItem){
+    const m=STATE.editOrderItem;
+    if(key==="eoiFruit"){ m.fruitId=val; render(); return; }
+    if(key==="eoiQty"){ m.qty=Math.max(1,parseInt(val)||1); render(); return; }
+    if(key==="eoiMethod"){ m.deliveryMethod=val; if(val!=="pickup"){/*keep*/} render(); return; }
+    if(key==="eoiGiftArrival"){ m.giftArrivalDate=val; return; }
+    if(key==="eoiVisitDate"){ m.visitDate=val; m.visitTime=""; render(); return; }
+    if(key==="eoiVisitTime"){ m.visitTime=val; return; }
+    if(key==="eoiChurchDate"){ m.churchDate=val; return; }
+  }
   if(["acctBank","acctNumber","acctHolder","acctPhone"].includes(key)){
     if(!STATE.accountForm) STATE.accountForm={...STATE.account};
     const m={acctBank:"bank",acctNumber:"number",acctHolder:"holder",acctPhone:"phone"};
@@ -856,6 +922,9 @@ async function onAction(e){
   if(action==="setAdminTab"){ setState({adminTab:v}); if(v==="orders"||v==="work") loadAll(true); return; }
   if(action==="setWorkSub"){ setState({workSub:v}); return; }
   if(action==="markItemDone"){ await markItemDone(el.getAttribute("data-oid"), el.getAttribute("data-iid"), el.getAttribute("data-field")); return; }
+  if(action==="openEditOrderItem"){ openEditOrderItem(el.getAttribute("data-oid"), el.getAttribute("data-iid")); return; }
+  if(action==="closeEditOrderItem"){ STATE.editOrderItem=null; render(); return; }
+  if(action==="saveEditOrderItem"){ await saveEditOrderItem(); return; }
   if(action==="addFruit"){ await addFruit(); return; }
   if(action==="clearNewFruitImage"){ STATE.fruitForm.image=""; render(); return; }
   if(action==="toggleFruit"){ await toggleFruit(id); return; }
@@ -1051,6 +1120,63 @@ async function markItemDone(orderId, itemId, field){
   }
 }
 
+function openEditOrderItem(orderId, itemId){
+  const o=STATE.orders.find(x=>x.id===orderId);
+  if(!o) return;
+  const it=(o.items||[]).find(x=>x.itemId===itemId);
+  if(!it) return;
+  STATE.editOrderItem={
+    orderId, itemId,
+    fruitId:it.fruitId, qty:it.qty, deliveryMethod:it.deliveryMethod,
+    giftArrivalDate:it.giftArrivalDate||"", visitDate:it.visitDate||"", visitTime:it.visitTime||"", churchDate:it.churchDate||"",
+  };
+  render();
+}
+
+async function saveEditOrderItem(){
+  const m=STATE.editOrderItem; if(!m) return;
+  const o=STATE.orders.find(x=>x.id===m.orderId); if(!o) return;
+  const it=(o.items||[]).find(x=>x.itemId===m.itemId); if(!it) return;
+
+  // 최초 주문값 스냅샷 (최초 1회만 고정)
+  if(it.origQty===undefined){
+    it.origQty=it.qty;
+    it.origTotalAmount=it.totalAmount??0;
+    it.origSched=schedDate(it.deliveryMethod,o,it)||"";
+    it.origFruitName=it.fruitName;
+    it.origMethod=it.deliveryMethod;
+  }
+
+  const f=fruitById(m.fruitId);
+  const qty=Math.max(1,parseInt(m.qty)||1);
+  const price=f?f.price:(it.unitPrice||0);
+  const amount=price*qty;
+  const shippingFee=m.deliveryMethod==="delivery"?(qty>=CONFIG.FREE_SHIPPING_BOX_COUNT?0:CONFIG.SHIPPING_FEE):0;
+
+  const backup={...it}; // 롤백용
+  Object.assign(it,{
+    fruitId:m.fruitId, fruitName:f?f.name:it.fruitName, unitPrice:price,
+    qty, amount, shippingFee, totalAmount:amount+shippingFee,
+    deliveryMethod:m.deliveryMethod,
+    giftArrivalDate:m.deliveryMethod==="delivery"?(m.giftArrivalDate||""):"",
+    visitDate:m.deliveryMethod==="pickup"?(m.visitDate||""):"",
+    visitTime:m.deliveryMethod==="pickup"?(m.visitTime||""):"",
+    visitPhone:m.deliveryMethod==="pickup"?(it.visitPhone||o.phone):"",
+    churchDate:m.deliveryMethod==="church"?(m.churchDate||""):"",
+    itemModifiedAt:new Date().toISOString(),
+  });
+  o.modified=true; o.modifiedAt=new Date().toISOString(); o.smsSent=false;
+  STATE.editOrderItem=null;
+  render(); // 낙관적 업데이트
+
+  try{
+    await apiPost({action:"updateOrder", order:{ id:o.id, name:o.name, phone:o.phone, items:o.items, modified:true, modifiedAt:o.modifiedAt }});
+  }catch(e){
+    Object.assign(it,backup); o.modified=false;
+    setState({saveError:"저장에 실패했어요. 다시 시도해주세요."});
+  }
+}
+
 function buildOrderSms(o){
   const shop = STATE.businessName || "과수원";
   const a = STATE.account || {};
@@ -1058,6 +1184,7 @@ function buildOrderSms(o){
   lines.push(`[${shop} 주문확인]`);
   lines.push(`${o.name}님`);
   let total = 0;
+  let anyChanged = false;
   (o.items||[]).forEach(it=>{
     total += (it.totalAmount||0);
     const method = it.deliveryMethod==="pickup" ? `방문 ${it.visitDate||""} ${it.visitTime||""}`.trim()
@@ -1067,9 +1194,20 @@ function buildOrderSms(o){
     if(it.isGift){ line += `/선물 받는분:${it.receiverName||""}`; if(it.giftArrivalDate) line += ` 도착희망 ${it.giftArrivalDate}`; }
     line += `) ${won(it.totalAmount||0)}`;
     lines.push(line);
+    // 관리자가 수정한 품목이면 최초 주문값 병기
+    if(it.itemModifiedAt && it.origQty!==undefined){
+      anyChanged = true;
+      const nowSched = it.deliveryMethod==="pickup"?`${it.visitDate||""} ${it.visitTime||""}`.trim()
+        : it.deliveryMethod==="church"?(it.churchDate||"") : (it.giftArrivalDate||"");
+      let chg = `   (변경: 수량 ${it.origQty}→${it.qty}, 금액 ${won(it.origTotalAmount)}→${won(it.totalAmount||0)}`;
+      if((it.origSched||"")!==(nowSched||"")) chg += `, 일정 ${it.origSched||"-"}→${nowSched||"-"}`;
+      chg += ")";
+      lines.push(chg);
+    }
   });
   lines.push(`합계: ${won(total)}`);
   lines.push("");
+  if(anyChanged) lines.push("※ 작황·일정 사정으로 위와 같이 조정되었습니다. 확인 부탁드립니다.");
   if(a.number) lines.push(`입금계좌: ${a.bank||""} ${a.number} ${a.holder||""}`.trim());
   lines.push("주문해주셔서 감사합니다.");
   return lines.join("\n");
