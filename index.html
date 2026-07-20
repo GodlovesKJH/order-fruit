@@ -154,7 +154,7 @@ select.input{background:var(--bg);}
    설정 — APPS_SCRIPT_URL만 본인 것으로 바꿔주세요
    ========================================================= */
 const CONFIG = {
-  APPS_SCRIPT_URL: "https://script.google.com/macros/s/AKfycbwDQSY2Pc8N16s4TCF1GIKGBjNI9V9MXH_zemspqLFxPkBuaNdSwUXiMN57u6mIgXYY9Q/exec",
+  APPS_SCRIPT_URL: "https://script.google.com/macros/s/AKfycbwgPFs9GD3_sPhhNHyet54kJPE11IgfLrv6HC-NMI6aRD5-gMumPrMvnf58hDmugHmc7g/exec",
   ADMIN_PIN: "1004",
   FARM_ADDRESS: "경기도 안성시 삼죽면 하냉길 33-58",
   SHIPPING_FEE: 4000,
@@ -209,6 +209,7 @@ let STATE = {
   loadError: "",
   saveError: "",
   adminTab: "orders",
+  workSub: "delivery",
   fruitForm: { name: "", price: "", stock: "", image: "" },
   accountForm: null,
   availForm: { date: "", start: "09:00", end: "18:00" },
@@ -236,8 +237,12 @@ async function loadAll(silent){
   }
   try{
     const data = await apiGet();
+    const orders = (data.orders||[]).map(o=>{
+      const items=(o.items||[]).map((it,idx)=>({ ...it, itemId: it.itemId || (o.id+"-"+idx) }));
+      return { ...o, items };
+    });
     const patch = {
-      fruits: data.fruits||[], orders: data.orders||[],
+      fruits: data.fruits||[], orders,
       account: data.account||STATE.account,
       businessName: data.businessName!==undefined?data.businessName:STATE.businessName,
       availability: data.availability||[],
@@ -406,7 +411,7 @@ function renderBuild(){
     <div class="section-label">${editingCartItem?"항목 수정":"과일 담기"}</div>
     <div class="fruit-grid">
       ${activeFruits.map(fr=>`<div class="fruit-card ${fr.id===it.fruitId?"active":""}" data-action="pickFruit" data-id="${esc(fr.id)}">
-        ${fr.image?`<div class="fruit-thumb"><img src="${esc(fr.image)}" alt="${esc(fr.name)}"/></div>`:`<div class="fruit-thumb placeholder">🍎</div>`}
+        ${fr.image?`<div class="fruit-thumb"><img src="${esc(fr.image)}" alt="${esc(fr.name)}" loading="lazy"/></div>`:`<div class="fruit-thumb placeholder">🍎</div>`}
         <div class="name">${esc(fr.name)}</div>
         <div class="price tabular">${won(fr.price)}</div>
         ${typeof fr.stock==="number"?`<div class="stock">재고 ${fr.stock}</div>`:""}
@@ -513,11 +518,13 @@ function renderAdminArea(){
   const countHtml = modCount>0 ? `주문 확인 (<span class="count-alert">${STATE.orders.length}</span>)` : `주문 확인 (${STATE.orders.length})`;
   return `<div class="mini-tabs">
     <button class="mini-tab ${STATE.adminTab==="orders"?"active":""}" data-action="setAdminTab" data-v="orders">${countHtml}</button>
+    <button class="mini-tab ${STATE.adminTab==="work"?"active":""}" data-action="setAdminTab" data-v="work">작업 목록</button>
     <button class="mini-tab ${STATE.adminTab==="fruits"?"active":""}" data-action="setAdminTab" data-v="fruits">과일 관리</button>
     <button class="mini-tab ${STATE.adminTab==="avail"?"active":""}" data-action="setAdminTab" data-v="avail">상주 일정</button>
     <button class="mini-tab ${STATE.adminTab==="account"?"active":""}" data-action="setAdminTab" data-v="account">가게 설정</button>
   </div>
   ${STATE.adminTab==="orders"?renderOrderManager():""}
+  ${STATE.adminTab==="work"?renderWorkList():""}
   ${STATE.adminTab==="fruits"?renderFruitManager():""}
   ${STATE.adminTab==="avail"?renderAvailManager():""}
   ${STATE.adminTab==="account"?renderAccountManager():""}`;
@@ -555,7 +562,7 @@ function renderFruitManager(){
   ${STATE.fruits.map(f=>`<div class="fruit-row ${f.active?"":"inactive"}">
     <div class="fruit-row-top">
       <div style="display:flex;align-items:center;gap:10px;min-width:0;">
-        <div class="fruit-thumb-admin">${f.image?`<img src="${esc(f.image)}" alt=""/>`:"🍎"}</div>
+        <div class="fruit-thumb-admin">${f.image?`<img src="${esc(f.image)}" alt="" loading="lazy"/>`:"🍎"}</div>
         <div style="min-width:0;"><div class="name">${esc(f.name)}</div><div class="fruit-row-sub">${won(f.price)}${typeof f.stock==="number"?` · 재고 ${f.stock}`:""}</div></div>
       </div>
       <button class="btn-ghost" style="padding:6px 10px;min-height:32px;font-size:12px;" data-action="toggleFruit" data-id="${esc(f.id)}">${f.active?"👁 판매중":"🚫 숨김"}</button>
@@ -600,6 +607,129 @@ function renderAccountManager(){
   </div>`;
 }
 
+/* ---- 작업 목록 (수령방법 기준) ---- */
+function todayStr(){ const d=new Date(); return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); }
+function ym(dateStr){ return (dateStr||"").slice(0,7); }
+function curYM(){ return todayStr().slice(0,7); }
+// 택배 예정일: 선물 희망일 있으면 그것, 없으면 주문 생성일(YYYY-MM-DD)
+function deliveryDate(o,it){ return it.giftArrivalDate || (o.createdAt? o.createdAt.slice(0,10):""); }
+// 모든 주문의 품목을 수령방법별로 평탄화. 각 원소에 주문정보(o) + 품목(it) + itemId 포함
+function flattenItems(method){
+  const rows=[];
+  STATE.orders.forEach(o=>{
+    (o.items||[]).forEach(it=>{
+      if(it.deliveryMethod!==method) return;
+      rows.push({ o, it, itemId: it.itemId });
+    });
+  });
+  return rows;
+}
+function schedDate(method,o,it){
+  if(method==="delivery") return deliveryDate(o,it);
+  if(method==="pickup") return it.visitDate||"";
+  if(method==="church") return it.churchDate||"";
+  return "";
+}
+
+function renderWorkList(){
+  const sub=STATE.workSub;
+  const label = {delivery:"택배",pickup:"방문",church:"교회"};
+  return `<div class="mini-tabs" style="margin-bottom:16px;">
+    <button class="mini-tab ${sub==="delivery"?"active":""}" data-action="setWorkSub" data-v="delivery">🚚 택배</button>
+    <button class="mini-tab ${sub==="pickup"?"active":""}" data-action="setWorkSub" data-v="pickup">🚗 방문</button>
+    <button class="mini-tab ${sub==="church"?"active":""}" data-action="setWorkSub" data-v="church">⛪ 교회</button>
+  </div>
+  ${sub==="delivery"?renderWorkDelivery():sub==="pickup"?renderWorkDated("pickup"):renderWorkDated("church")}`;
+}
+
+function statBar(cells){
+  return `<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px;">
+    ${cells.map(c=>`<div style="flex:1 1 100px;background:#fff;border:1px solid var(--line);border-radius:10px;padding:10px 12px;text-align:center;">
+      <div style="font-size:11px;color:var(--inkSoft);margin-bottom:3px;">${c.label}</div>
+      <div style="font-weight:800;color:${c.color||"var(--forest)"};font-size:15px;" class="tabular">${c.n}건</div>
+      <div style="font-size:11px;color:var(--inkSoft);line-height:1.5;">${c.breakdown||"—"}</div>
+    </div>`).join("")}
+  </div>`;
+}
+function sumQ(rows){ return rows.reduce((s,r)=>s+(r.it.qty||0),0); }
+// 과일 종류별 개수 문자열: "황도 3 · 사과 5"
+function breakdownQ(rows){
+  const map={};
+  rows.forEach(r=>{ const n=r.it.fruitName||"?"; map[n]=(map[n]||0)+(r.it.qty||0); });
+  const keys=Object.keys(map);
+  if(!keys.length) return "—";
+  return keys.map(n=>`${esc(n)} ${map[n]}`).join(" · ");
+}
+
+function renderWorkDelivery(){
+  const all=flattenItems("delivery"); // 취소된 주문은 STATE.orders에 이미 없음
+  // 집계
+  const total=all;
+  const month=all.filter(r=>ym(deliveryDate(r.o,r.it))===curYM());
+  const undone=all.filter(r=>!r.it.delivered);
+  // 목록: 미배송만, 예정일 오름차순
+  const list=[...undone].sort((a,b)=>deliveryDate(a.o,a.it).localeCompare(deliveryDate(b.o,b.it)));
+  const bar=statBar([
+    {label:"미배송량",n:undone.length,breakdown:breakdownQ(undone),color:"var(--persimmonDark)"},
+    {label:"금월 주문량",n:month.length,breakdown:breakdownQ(month)},
+    {label:"총 주문량",n:total.length,breakdown:breakdownQ(total)},
+  ]);
+  if(!list.length) return bar+`<div class="empty-note">미배송 택배가 없어요. 🎉</div>`;
+  return bar+list.map(r=>{
+    const it=r.it,o=r.o; const d=deliveryDate(o,it);
+    const recv = it.isGift? `${esc(it.receiverName||"")}${it.receiverPhone?"("+esc(it.receiverPhone)+")":""}` : esc(o.name);
+    return `<div class="order-card">
+      <div class="order-card-top">
+        <div style="min-width:0;">
+          <div style="font-weight:700;color:var(--forest);font-size:15px;">${esc(it.fruitName)} × ${it.qty} ${it.isGift?`<span style="font-size:11px;color:var(--gold);">🎁 선물</span>`:""}</div>
+          <div style="font-size:12.5px;color:var(--inkSoft);margin-top:3px;">받는분: ${recv}</div>
+        </div>
+        <div style="text-align:right;font-size:12px;color:var(--persimmonDark);font-weight:700;">${d||"-"}</div>
+      </div>
+      <div class="meta">주소: ${it.address?esc(it.address):"<span style='color:var(--persimmonDark)'>미입력</span>"}<br/>주문자: ${esc(o.name)} · ☎ ${esc(o.phone)}</div>
+      <button class="btn-forest" style="margin-top:10px;font-size:12.5px;padding:8px 12px;min-height:36px;width:auto;" data-action="markItemDone" data-oid="${esc(o.id)}" data-iid="${esc(it.itemId)}" data-field="delivered">✅ 배송완료</button>
+    </div>`;
+  }).join("");
+}
+
+function renderWorkDated(method){
+  const all=flattenItems(method);
+  const today=todayStr();
+  const total=all;
+  const month=all.filter(r=>ym(schedDate(method,r.o,r.it))===curYM());
+  // 준비필요: 아직 prepared 아니고 날짜 안 지남
+  const needPrep=all.filter(r=>!r.it.prepared && schedDate(method,r.o,r.it)>=today);
+  // 목록: 날짜 안 지난 것만(당일 포함), 날짜 오름차순 (방문은 시간 2차)
+  let list=all.filter(r=>schedDate(method,r.o,r.it)>=today);
+  list.sort((a,b)=>{
+    const da=schedDate(method,a.o,a.it), db=schedDate(method,b.o,b.it);
+    if(da!==db) return da.localeCompare(db);
+    if(method==="pickup") return (a.it.visitTime||"").localeCompare(b.it.visitTime||"");
+    return 0;
+  });
+  const bar=statBar([
+    {label:"준비필요량",n:needPrep.length,breakdown:breakdownQ(needPrep),color:"var(--persimmonDark)"},
+    {label:"금월 주문량",n:month.length,breakdown:breakdownQ(month)},
+    {label:"총 주문량",n:total.length,breakdown:breakdownQ(total)},
+  ]);
+  if(!list.length) return bar+`<div class="empty-note">예정된 ${method==="pickup"?"방문":"교회 수령"}이 없어요.</div>`;
+  return bar+list.map(r=>{
+    const it=r.it,o=r.o; const d=schedDate(method,o,it);
+    const when = method==="pickup"? `${d} ${esc(it.visitTime||"")}` : d;
+    const contact = method==="pickup"? `방문자 ☎ ${esc(it.visitPhone||o.phone)}` : `주문자 ${esc(o.name)} · ☎ ${esc(o.phone)}`;
+    return `<div class="order-card" style="${it.prepared?"opacity:.6;":""}">
+      <div class="order-card-top">
+        <div style="min-width:0;">
+          <div style="font-weight:700;color:var(--forest);font-size:15px;">${esc(it.fruitName)} × ${it.qty} ${it.isGift?`<span style="font-size:11px;color:var(--gold);">🎁</span>`:""}</div>
+          <div style="font-size:12.5px;color:var(--inkSoft);margin-top:3px;">${contact}</div>
+        </div>
+        <div style="text-align:right;font-size:12px;color:var(--persimmonDark);font-weight:700;">${esc(when)}</div>
+      </div>
+      <button class="btn-${it.prepared?"ghost":"forest"}" style="margin-top:10px;font-size:12.5px;padding:8px 12px;min-height:36px;width:auto;" data-action="markItemDone" data-oid="${esc(o.id)}" data-iid="${esc(it.itemId)}" data-field="prepared">${it.prepared?"✓ 준비완료됨 (해제)":"📦 준비완료"}</button>
+    </div>`;
+  }).join("");
+}
+
 function renderOrderManager(){
   const sorted=[...STATE.orders].sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt));
   const grand=sorted.reduce((s,o)=>s+(o.items||[]).reduce((ss,it)=>ss+(it.totalAmount??0),0),0);
@@ -622,7 +752,7 @@ function renderOrderManager(){
           : it.deliveryMethod==="church" ? `교회수령 ${esc(it.churchDate)}`
           : (it.address?`주소: ${esc(it.address)}`:"주소 미입력");
         const gift = it.isGift?` · 🎁 ${esc(it.receiverName)}${it.receiverPhone?"("+esc(it.receiverPhone)+")":""}${it.giftArrivalDate?` 도착희망 ${esc(it.giftArrivalDate)}`:""}`:"";
-        return `<div class="order-item-line"><b>${esc(it.fruitName)} × ${it.qty}</b> — ${methodLabel(it.deliveryMethod)} · <span class="tabular">${won(it.totalAmount??0)}</span><br/><span style="color:var(--inkSoft);">${extra}${gift}</span></div>`;
+        return `<div class="order-item-line"><b>${esc(it.fruitName)} × ${it.qty}</b> — ${methodLabel(it.deliveryMethod)} · <span class="tabular">${won(it.totalAmount??0)}</span>${it.delivered?` <span style="color:var(--forest);font-weight:700;">✅발송</span>`:""}${it.prepared?` <span style="color:var(--forest);font-weight:700;">✅준비</span>`:""}<br/><span style="color:var(--inkSoft);">${extra}${gift}</span></div>`;
       }).join("")}
       <div class="meta">${new Date(o.createdAt).toLocaleString("ko-KR")}${o.modifiedAt?` · <span style="color:var(--alert);">수정: ${new Date(o.modifiedAt).toLocaleString("ko-KR")}</span>`:""}</div>
       <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;align-items:center;">
@@ -723,7 +853,9 @@ async function onAction(e){
   if(action==="submitOrder"){ await submitOrder(); return; }
 
   if(action==="checkPin"){ checkPin(); return; }
-  if(action==="setAdminTab"){ setState({adminTab:v}); if(v==="orders") loadAll(true); return; }
+  if(action==="setAdminTab"){ setState({adminTab:v}); if(v==="orders"||v==="work") loadAll(true); return; }
+  if(action==="setWorkSub"){ setState({workSub:v}); return; }
+  if(action==="markItemDone"){ await markItemDone(el.getAttribute("data-oid"), el.getAttribute("data-iid"), el.getAttribute("data-field")); return; }
   if(action==="addFruit"){ await addFruit(); return; }
   if(action==="clearNewFruitImage"){ STATE.fruitForm.image=""; render(); return; }
   if(action==="toggleFruit"){ await toggleFruit(id); return; }
@@ -826,12 +958,15 @@ async function submitOrder(){
   if(!STATE.cart.length) return;
   STATE.submitting=true; render();
   const editing=!!STATE.editingOrderId;
-  const items=STATE.cart.map(ci=>{
+  const items=STATE.cart.map((ci,idx)=>{
     const f=fruitById(ci.fruitId);
     const amount=itemAmount(ci), shippingFee=itemShipping(ci);
-    return { fruitId:ci.fruitId, fruitName:f?f.name:"", qty:ci.qty, unitPrice:f?f.price:0, amount, shippingFee, totalAmount:amount+shippingFee,
+    const oid = editing?STATE.editingOrderId:null;
+    return { itemId: ci._id || ((oid||"new")+"-"+idx+"-"+Math.random().toString(36).slice(2,6)),
+      fruitId:ci.fruitId, fruitName:f?f.name:"", qty:ci.qty, unitPrice:f?f.price:0, amount, shippingFee, totalAmount:amount+shippingFee,
       deliveryMethod:ci.deliveryMethod, address:ci.address, visitDate:ci.visitDate, visitTime:ci.visitTime, visitPhone:ci.visitPhone, churchDate:ci.churchDate,
-      isGift:ci.isGift, receiverName:ci.receiverName, receiverPhone:ci.receiverPhone, giftArrivalDate:ci.giftArrivalDate };
+      isGift:ci.isGift, receiverName:ci.receiverName, receiverPhone:ci.receiverPhone, giftArrivalDate:ci.giftArrivalDate,
+      delivered:false, prepared:false };
   });
   const order={ id:editing?STATE.editingOrderId:uid(), name:STATE.buyer.name, phone:STATE.buyer.phone, items,
     createdAt:editing?STATE.editingCreatedAt:new Date().toISOString(), modified:editing, modifiedAt:editing?new Date().toISOString():"" };
@@ -894,8 +1029,26 @@ async function deleteOrder(id){
   catch(e){ setState({saveError:"삭제에 실패했어요."}); }
 }
 async function confirmOrder(id){
-  try{ await apiPost({action:"confirmOrder",id}); const o=STATE.orders.find(x=>x.id===id); if(o)o.modified=false; render(); }
-  catch(e){ setState({saveError:"처리에 실패했어요."}); }
+  const o=STATE.orders.find(x=>x.id===id);
+  if(o) o.modified=false; render(); // 낙관적 업데이트
+  try{ await apiPost({action:"confirmOrder",id}); }
+  catch(e){ if(o) o.modified=true; setState({saveError:"처리에 실패했어요."}); }
+}
+
+async function markItemDone(orderId, itemId, field){
+  const o=STATE.orders.find(x=>x.id===orderId);
+  if(!o) return;
+  const it=(o.items||[]).find(x=>x.itemId===itemId);
+  if(!it) return;
+  const prev=!!it[field];
+  it[field]=!prev; // 낙관적: 화면 먼저 반영
+  render();
+  try{
+    await apiPost({action:"setItemFlag", orderId, itemId, field, value:it[field], items:o.items});
+  }catch(e){
+    it[field]=prev; // 실패 시 롤백
+    setState({saveError:"저장에 실패했어요. 다시 시도해주세요."});
+  }
 }
 
 function buildOrderSms(o){
