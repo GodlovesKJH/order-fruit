@@ -169,7 +169,7 @@ const digits = (s) => String(s || "").replace(/\D/g, "");
 // 전화번호 비교용 정규화: 맨앞 0이 있든 없든 동일하게 취급
 // (예전에 숫자로 저장돼 앞 0이 사라진 데이터도 매칭되도록)
 const phoneKey = (s) => { let d = digits(s); return d.replace(/^0+/, ""); };
-const methodLabel = (m) => m === "pickup" ? "🚗 직접 방문" : m === "church" ? "⛪ 교회 수령" : "🚚 택배 배송";
+const methodLabel = (m) => m === "pickup" ? "🚗 농장 방문 수령/픽업" : m === "church" ? "🎁 직접 전달/맞춤 배달" : "🚚 택배 배송";
 
 // 장바구니에 담기 전 "지금 담는 항목" 편집 폼
 const EMPTY_ITEM = () => ({
@@ -432,21 +432,23 @@ function renderBuild(){
       <div class="section-label">수령 방법</div>
       <div class="delivery-opts">
         <button class="delivery-opt ${it.deliveryMethod==="delivery"?"active":""}" data-action="itemDelivery" data-v="delivery">🚚 택배 배송</button>
-        <button class="delivery-opt ${it.deliveryMethod==="pickup"?"active":""}" data-action="itemDelivery" data-v="pickup">🚗 직접 방문</button>
-        <button class="delivery-opt ${it.deliveryMethod==="church"?"active":""}" data-action="itemDelivery" data-v="church">⛪ 교회 수령</button>
+        <button class="delivery-opt ${it.deliveryMethod==="pickup"?"active":""}" data-action="itemDelivery" data-v="pickup">🚗 방문 수령/픽업</button>
+        <button class="delivery-opt ${it.deliveryMethod==="church"?"active":""}" data-action="itemDelivery" data-v="church">🎁 직접 전달/맞춤 배달</button>
       </div>
       ${it.deliveryMethod==="delivery"?`<div class="shipping-note">택배비: 1박스 ${won(CONFIG.SHIPPING_FEE)} · ${CONFIG.FREE_SHIPPING_BOX_COUNT}박스 이상 무료 — 이 품목 <strong style="color:${shipping===0?"var(--forest)":"var(--persimmonDark)"};">${shipping===0?"무료 배송":won(shipping)}</strong></div>`:""}
     </div>
 
     ${it.deliveryMethod==="delivery"?`
-      <div class="field"><div class="field-head"><label class="field-label">주소</label><span class="hint">선택사항</span></div><input class="input" data-bind="itemAddress" placeholder="배송받으실 주소" value="${esc(it.address)}" /></div>`:""}
+      <div class="field"><div class="field-head"><label class="field-label">주소</label><span class="hint">선택사항</span></div><input class="input" data-bind="itemAddress" placeholder="배송받으실 주소" value="${esc(it.address)}" /></div>
+      <div class="field"><div class="field-head"><label class="field-label">받으실 날짜</label><span class="hint">선택사항</span></div><input class="input" type="date" data-bind="itemGiftArrival" value="${esc(it.giftArrivalDate)}" /></div>`:""}
 
     ${it.deliveryMethod==="pickup"?renderVisitFields(it,e,dates):""}
 
     ${it.deliveryMethod==="church"?`
       <div class="box-panel">
-        <div style="font-size:13px;color:var(--forest);font-weight:700;">⛪ 주일 예배 후 교회에서 받아가실 수 있어요.</div>
-        <div class="field"><div class="field-head"><label class="field-label">교회 수령 날짜 <span class="req">*</span></label></div><input class="input" type="date" data-bind="itemChurchDate" value="${esc(it.churchDate)}" />${e.churchDate?`<div class="err">${e.churchDate}</div>`:""}</div>
+        <div style="font-size:13px;color:var(--forest);font-weight:700;">🎁 농장에서 원하시는 곳으로 직접 전달해드려요.</div>
+        <div class="field"><div class="field-head"><label class="field-label">받으실 곳 <span class="req">*</span></label></div><input class="input" data-bind="itemAddress" placeholder="예: ○○교회 본당 앞, △△아파트 경비실" value="${esc(it.address)}" />${e.address?`<div class="err">${e.address}</div>`:""}</div>
+        <div class="field"><div class="field-head"><label class="field-label">수령 날짜 <span class="req">*</span></label></div><input class="input" type="date" data-bind="itemChurchDate" value="${esc(it.churchDate)}" />${e.churchDate?`<div class="err">${e.churchDate}</div>`:""}</div>
       </div>`:""}
 
     <label class="gift-toggle"><input type="checkbox" data-bind="itemIsGift" ${it.isGift?"checked":""}/> 🎁 선물이에요 (받는 분이 따로 있어요)</label>
@@ -454,7 +456,6 @@ function renderBuild(){
       <div class="box-panel">
         <div class="field"><div class="field-head"><label class="field-label">수령자 성함 <span class="req">*</span></label></div><input class="input" data-bind="itemReceiverName" placeholder="선물 받으실 분" value="${esc(it.receiverName)}" />${e.receiverName?`<div class="err">${e.receiverName}</div>`:""}</div>
         <div class="field"><div class="field-head"><label class="field-label">수령자 연락처</label><span class="hint">선택사항</span></div><input class="input" type="tel" inputmode="tel" data-bind="itemReceiverPhone" placeholder="010-0000-0000" value="${esc(it.receiverPhone)}" /></div>
-        ${it.deliveryMethod==="delivery"?`<div class="field"><div class="field-head"><label class="field-label">희망 도착 날짜</label><span class="hint">선택사항</span></div><input class="input" type="date" data-bind="itemGiftArrival" value="${esc(it.giftArrivalDate)}" /></div>`:""}
       </div>`:""}
 
     <button class="btn-forest" data-action="addToCart">${editingCartItem?"항목 저장":"＋ 장바구니에 담기"}</button>
@@ -581,7 +582,7 @@ function renderAvailManager(){
   const sorted=[...STATE.availability].sort((a,b)=>(a.date+a.start).localeCompare(b.date+b.start));
   return `<div class="admin-card">
     <div class="section-label">농장주 상주 일정 추가</div>
-    <div style="font-size:12.5px;color:var(--inkSoft);margin-bottom:12px;">여기에 등록한 날짜·시간대 안에서만 주문자가 '직접 방문' 수령을 예약할 수 있어요.</div>
+    <div style="font-size:12.5px;color:var(--inkSoft);margin-bottom:12px;">여기에 등록한 날짜·시간대 안에서만 주문자가 '농장 방문 수령/픽업'을 예약할 수 있어요.</div>
     <div class="two-col">
       <div class="field" style="margin-bottom:10px;"><div class="field-head"><label class="field-label">날짜</label></div><input class="input" type="date" data-bind="availDate" value="${esc(af.date)}" /></div>
       <div class="field" style="margin-bottom:10px;"><div class="field-head"><label class="field-label">시작</label></div><input class="input" type="time" data-bind="availStart" value="${esc(af.start)}" /></div>
@@ -637,8 +638,8 @@ function renderWorkList(){
   const label = {delivery:"택배",pickup:"방문",church:"교회"};
   return `<div class="mini-tabs" style="margin-bottom:16px;">
     <button class="mini-tab ${sub==="delivery"?"active":""}" data-action="setWorkSub" data-v="delivery">🚚 택배</button>
-    <button class="mini-tab ${sub==="pickup"?"active":""}" data-action="setWorkSub" data-v="pickup">🚗 방문</button>
-    <button class="mini-tab ${sub==="church"?"active":""}" data-action="setWorkSub" data-v="church">⛪ 교회</button>
+    <button class="mini-tab ${sub==="pickup"?"active":""}" data-action="setWorkSub" data-v="pickup">🚗 방문/픽업</button>
+    <button class="mini-tab ${sub==="church"?"active":""}" data-action="setWorkSub" data-v="church">🎁 직접 전달</button>
   </div>
   ${sub==="delivery"?renderWorkDelivery():sub==="pickup"?renderWorkDated("pickup"):renderWorkDated("church")}`;
 }
@@ -713,16 +714,18 @@ function renderWorkDated(method){
     {label:"금월 주문량",n:month.length,breakdown:breakdownQ(month)},
     {label:"총 주문량",n:total.length,breakdown:breakdownQ(total)},
   ]);
-  if(!list.length) return bar+`<div class="empty-note">예정된 ${method==="pickup"?"방문":"교회 수령"}이 없어요.</div>`;
+  if(!list.length) return bar+`<div class="empty-note">예정된 ${method==="pickup"?"방문/픽업":"직접 전달"}이 없어요.</div>`;
   return bar+list.map(r=>{
     const it=r.it,o=r.o; const d=schedDate(method,o,it);
     const when = method==="pickup"? `${d} ${esc(it.visitTime||"")}` : d;
     const contact = method==="pickup"? `방문자 ☎ ${esc(it.visitPhone||o.phone)}` : `주문자 ${esc(o.name)} · ☎ ${esc(o.phone)}`;
+    const place = method==="church" && it.address ? `<div style="font-size:12.5px;color:var(--forest);margin-top:3px;">📍 받으실 곳: ${esc(it.address)}</div>` : "";
     return `<div class="order-card" style="${it.prepared?"opacity:.6;":""}">
       <div class="order-card-top">
         <div style="min-width:0;">
           <div style="font-weight:700;color:var(--forest);font-size:15px;">${esc(it.fruitName)} × ${it.qty} ${it.isGift?`<span style="font-size:11px;color:var(--gold);">🎁</span>`:""}</div>
           <div style="font-size:12.5px;color:var(--inkSoft);margin-top:3px;">${contact}</div>
+          ${place}
         </div>
         <div style="text-align:right;font-size:12px;color:var(--persimmonDark);font-weight:700;">${esc(when)}</div>
       </div>
@@ -750,8 +753,8 @@ function renderOrderManager(){
       </div>
       ${items.map(it=>{
         const extra = it.deliveryMethod==="pickup" ? `방문 ${esc(it.visitDate)} ${esc(it.visitTime)} · ☎ ${esc(it.visitPhone)}`
-          : it.deliveryMethod==="church" ? `교회수령 ${esc(it.churchDate)}`
-          : (it.address?`주소: ${esc(it.address)}`:"주소 미입력");
+          : it.deliveryMethod==="church" ? `직접전달: ${it.address?esc(it.address):"장소 미입력"} · ${esc(it.churchDate)}`
+          : (it.address?`주소: ${esc(it.address)}`:"주소 미입력")+(it.giftArrivalDate?` · 받으실날 ${esc(it.giftArrivalDate)}`:"");
         const gift = it.isGift?` · 🎁 ${esc(it.receiverName)}${it.receiverPhone?"("+esc(it.receiverPhone)+")":""}${it.giftArrivalDate?` 도착희망 ${esc(it.giftArrivalDate)}`:""}`:"";
         const changed = it.itemModifiedAt && (it.origQty!==undefined);
         const changeLine = changed ? `<div style="font-size:11.5px;color:var(--alert);margin-top:3px;">
@@ -815,12 +818,12 @@ function renderEditOrderItemModal(){
     <div class="field"><div class="field-head"><label class="field-label">수령 방법</label></div>
       <select class="input" data-bind="eoiMethod">
         <option value="delivery" ${m.deliveryMethod==="delivery"?"selected":""}>택배 배송</option>
-        <option value="pickup" ${m.deliveryMethod==="pickup"?"selected":""}>직접 방문</option>
-        <option value="church" ${m.deliveryMethod==="church"?"selected":""}>교회 수령</option>
+        <option value="pickup" ${m.deliveryMethod==="pickup"?"selected":""}>농장 방문 수령/픽업</option>
+        <option value="church" ${m.deliveryMethod==="church"?"selected":""}>직접 전달/맞춤 배달</option>
       </select></div>
 
     ${m.deliveryMethod==="delivery"?`
-      <div class="field"><div class="field-head"><label class="field-label">배송 희망일</label><span class="hint">선택</span></div><input class="input" type="date" data-bind="eoiGiftArrival" value="${esc(m.giftArrivalDate||"")}" /></div>`:""}
+      <div class="field"><div class="field-head"><label class="field-label">받으실 날짜</label><span class="hint">선택</span></div><input class="input" type="date" data-bind="eoiGiftArrival" value="${esc(m.giftArrivalDate||"")}" /></div>`:""}
     ${m.deliveryMethod==="pickup"?`
       <div class="field"><div class="field-head"><label class="field-label">방문 날짜</label></div>
         ${dates.length?`<select class="input" data-bind="eoiVisitDate"><option value="">날짜 선택</option>${dates.map(d=>`<option value="${d}" ${m.visitDate===d?"selected":""}>${d}</option>`).join("")}</select>`
@@ -829,7 +832,8 @@ function renderEditOrderItemModal(){
         ${dates.length?`<select class="input" data-bind="eoiVisitTime" ${!m.visitDate?"disabled":""}><option value="">시간</option>${slots.map(s=>`<option value="${s}" ${m.visitTime===s?"selected":""}>${s}</option>`).join("")}</select>`
           :`<input class="input" type="time" data-bind="eoiVisitTime" value="${esc(m.visitTime||"")}" />`}</div>`:""}
     ${m.deliveryMethod==="church"?`
-      <div class="field"><div class="field-head"><label class="field-label">교회 수령일</label></div><input class="input" type="date" data-bind="eoiChurchDate" value="${esc(m.churchDate||"")}" /></div>`:""}
+      <div class="field"><div class="field-head"><label class="field-label">받으실 곳</label></div><input class="input" data-bind="eoiAddress" value="${esc(m.address||"")}" placeholder="예: ○○교회 본당 앞" /></div>
+      <div class="field"><div class="field-head"><label class="field-label">수령 날짜</label></div><input class="input" type="date" data-bind="eoiChurchDate" value="${esc(m.churchDate||"")}" /></div>`:""}
 
     <div class="summary-box" style="margin-bottom:14px;">
       <div class="summary-row"><span>과일 금액</span><span class="tabular">${won(amount)}</span></div>
@@ -885,6 +889,7 @@ function onBind(e){
     if(key==="eoiVisitDate"){ m.visitDate=val; m.visitTime=""; render(); return; }
     if(key==="eoiVisitTime"){ m.visitTime=val; return; }
     if(key==="eoiChurchDate"){ m.churchDate=val; return; }
+    if(key==="eoiAddress"){ m.address=val; return; }
   }
   if(["acctBank","acctNumber","acctHolder","acctPhone"].includes(key)){
     if(!STATE.accountForm) STATE.accountForm={...STATE.account};
@@ -999,7 +1004,10 @@ function validateItem(){
     if(!it.visitTime) e.visitTime="방문 시간을 선택해주세요.";
     if(!digits(it.visitPhone)) e.visitPhone="방문자 연락처를 입력해주세요.";
   }
-  if(it.deliveryMethod==="church" && !it.churchDate) e.churchDate="교회 수령 날짜를 선택해주세요.";
+  if(it.deliveryMethod==="church"){
+    if(!it.address.trim()) e.address="받으실 곳을 입력해주세요.";
+    if(!it.churchDate) e.churchDate="수령 날짜를 선택해주세요.";
+  }
   if(it.isGift && !it.receiverName.trim()) e.receiverName="받는 분 성함을 입력해주세요.";
   STATE.item.errors=e;
   return Object.keys(e).length===0;
@@ -1008,11 +1016,11 @@ function addToCart(){
   if(!validateItem()){ render(); return; }
   const it=STATE.item;
   const entry={ _id:STATE.editingItemId||uid(), fruitId:it.fruitId, qty:it.qty, deliveryMethod:it.deliveryMethod,
-    address:it.deliveryMethod==="delivery"?it.address.trim():"",
+    address:(it.deliveryMethod==="delivery"||it.deliveryMethod==="church")?it.address.trim():"",
     visitDate:it.deliveryMethod==="pickup"?it.visitDate:"", visitTime:it.deliveryMethod==="pickup"?it.visitTime:"", visitPhone:it.deliveryMethod==="pickup"?it.visitPhone.trim():"",
     churchDate:it.deliveryMethod==="church"?it.churchDate:"",
     isGift:it.isGift, receiverName:it.isGift?it.receiverName.trim():"", receiverPhone:it.isGift?it.receiverPhone.trim():"",
-    giftArrivalDate:(it.isGift&&it.deliveryMethod==="delivery")?it.giftArrivalDate:"" };
+    giftArrivalDate:it.deliveryMethod==="delivery"?it.giftArrivalDate:"" };
   if(STATE.editingItemId){ STATE.cart=STATE.cart.map(c=>c._id===STATE.editingItemId?entry:c); }
   else STATE.cart=[...STATE.cart,entry];
   STATE.item=EMPTY_ITEM(); STATE.editingItemId=null; render();
@@ -1127,7 +1135,7 @@ function openEditOrderItem(orderId, itemId){
   if(!it) return;
   STATE.editOrderItem={
     orderId, itemId,
-    fruitId:it.fruitId, qty:it.qty, deliveryMethod:it.deliveryMethod,
+    fruitId:it.fruitId, qty:it.qty, deliveryMethod:it.deliveryMethod, address:it.address||"",
     giftArrivalDate:it.giftArrivalDate||"", visitDate:it.visitDate||"", visitTime:it.visitTime||"", churchDate:it.churchDate||"",
   };
   render();
@@ -1158,6 +1166,7 @@ async function saveEditOrderItem(){
     fruitId:m.fruitId, fruitName:f?f.name:it.fruitName, unitPrice:price,
     qty, amount, shippingFee, totalAmount:amount+shippingFee,
     deliveryMethod:m.deliveryMethod,
+    address:(m.deliveryMethod==="delivery"||m.deliveryMethod==="church")?(m.address||""):"",
     giftArrivalDate:m.deliveryMethod==="delivery"?(m.giftArrivalDate||""):"",
     visitDate:m.deliveryMethod==="pickup"?(m.visitDate||""):"",
     visitTime:m.deliveryMethod==="pickup"?(m.visitTime||""):"",
@@ -1187,11 +1196,11 @@ function buildOrderSms(o){
   let anyChanged = false;
   (o.items||[]).forEach(it=>{
     total += (it.totalAmount||0);
-    const method = it.deliveryMethod==="pickup" ? `방문 ${it.visitDate||""} ${it.visitTime||""}`.trim()
-      : it.deliveryMethod==="church" ? `교회수령 ${it.churchDate||""}`.trim()
-      : "택배";
+    const method = it.deliveryMethod==="pickup" ? `방문수령 ${it.visitDate||""} ${it.visitTime||""}`.trim()
+      : it.deliveryMethod==="church" ? `직접전달 ${it.address||""} ${it.churchDate||""}`.trim()
+      : `택배${it.giftArrivalDate?" "+it.giftArrivalDate+" 도착":""}`;
     let line = `· ${it.fruitName} ${it.qty}개 (${method}`;
-    if(it.isGift){ line += `/선물 받는분:${it.receiverName||""}`; if(it.giftArrivalDate) line += ` 도착희망 ${it.giftArrivalDate}`; }
+    if(it.isGift){ line += `/선물 받는분:${it.receiverName||""}`; }
     line += `) ${won(it.totalAmount||0)}`;
     lines.push(line);
     // 관리자가 수정한 품목이면 최초 주문값 병기
