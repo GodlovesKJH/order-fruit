@@ -626,6 +626,7 @@ function renderOrderManager(){
       }).join("")}
       <div class="meta">${new Date(o.createdAt).toLocaleString("ko-KR")}${o.modifiedAt?` · <span style="color:var(--alert);">수정: ${new Date(o.modifiedAt).toLocaleString("ko-KR")}</span>`:""}</div>
       <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">
+        <button class="btn-forest" style="font-size:12px;padding:8px 12px;min-height:36px;width:auto;" data-action="smsOrder" data-id="${esc(o.id)}">✉️ 주문자에게 문자</button>
         ${o.modified?`<button class="btn-ghost" style="font-size:12px;padding:6px 10px;color:var(--forest);border-color:var(--forest);" data-action="confirmOrder" data-id="${esc(o.id)}">수정 확인 완료</button>`:""}
         <button class="btn-ghost" style="font-size:12px;padding:6px 10px;" data-action="deleteOrder" data-id="${esc(o.id)}">주문 삭제</button>
       </div>
@@ -734,6 +735,7 @@ async function onAction(e){
   if(action==="refreshOrders"){ await loadAll(); return; }
   if(action==="deleteOrder"){ await deleteOrder(id); return; }
   if(action==="confirmOrder"){ await confirmOrder(id); return; }
+  if(action==="smsOrder"){ smsOrder(id); return; }
 }
 
 function checkPin(){
@@ -890,6 +892,40 @@ async function deleteOrder(id){
 async function confirmOrder(id){
   try{ await apiPost({action:"confirmOrder",id}); const o=STATE.orders.find(x=>x.id===id); if(o)o.modified=false; render(); }
   catch(e){ setState({saveError:"처리에 실패했어요."}); }
+}
+
+function buildOrderSms(o){
+  const shop = STATE.businessName || "과수원";
+  const a = STATE.account || {};
+  const lines = [];
+  lines.push(`[${shop} 주문확인]`);
+  lines.push(`${o.name}님`);
+  let total = 0;
+  (o.items||[]).forEach(it=>{
+    total += (it.totalAmount||0);
+    const method = it.deliveryMethod==="pickup" ? `방문 ${it.visitDate||""} ${it.visitTime||""}`.trim()
+      : it.deliveryMethod==="church" ? `교회수령 ${it.churchDate||""}`.trim()
+      : "택배";
+    let line = `· ${it.fruitName} ${it.qty}개 (${method}`;
+    if(it.isGift){ line += `/선물 받는분:${it.receiverName||""}`; if(it.giftArrivalDate) line += ` 도착희망 ${it.giftArrivalDate}`; }
+    line += `) ${won(it.totalAmount||0)}`;
+    lines.push(line);
+  });
+  lines.push(`합계: ${won(total)}`);
+  lines.push("");
+  if(a.number) lines.push(`입금계좌: ${a.bank||""} ${a.number} ${a.holder||""}`.trim());
+  lines.push("주문해주셔서 감사합니다.");
+  return lines.join("\n");
+}
+
+function smsOrder(id){
+  const o = STATE.orders.find(x=>x.id===id);
+  if(!o) return;
+  const body = buildOrderSms(o);
+  const phone = digits(o.phone);
+  // iOS/Android 호환: 본문은 body= 파라미터로 전달
+  const href = `sms:${phone}?body=${encodeURIComponent(body)}`;
+  window.location.href = href;
 }
 </script>
 </body>
