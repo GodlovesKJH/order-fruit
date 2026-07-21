@@ -154,7 +154,7 @@ select.input{background:var(--bg);}
    설정 — APPS_SCRIPT_URL만 본인 것으로 바꿔주세요
    ========================================================= */
 const CONFIG = {
-  APPS_SCRIPT_URL: "https://script.google.com/macros/s/AKfycbwgPFs9GD3_sPhhNHyet54kJPE11IgfLrv6HC-NMI6aRD5-gMumPrMvnf58hDmugHmc7g/exec",
+  APPS_SCRIPT_URL: "https://script.google.com/macros/s/AKfycbxauSK9oRKfs3F-jdOTo6R36FKBw6fym7gX-guxb5z6Awy6lVx7LXVpvahuZhgsdHtI3A/exec",
   ADMIN_PIN: "1004",
   FARM_ADDRESS: "경기도 안성시 삼죽면 하냉길 33-58",
   SHIPPING_FEE: 4000,
@@ -240,7 +240,7 @@ async function loadAll(silent){
     const data = await apiGet();
     const orders = (data.orders||[]).map(o=>{
       const items=(o.items||[]).map((it,idx)=>({ ...it, itemId: it.itemId || (o.id+"-"+idx) }));
-      return { ...o, items };
+      return { ...o, items, cancelRequested: o.cancelRequested===true||o.cancelRequested==="TRUE" };
     });
     const patch = {
       fruits: data.fruits||[], orders,
@@ -349,12 +349,17 @@ function renderEditList(){
       return `<div class="my-order-item">
         <div class="top">
           <div>
-            <div style="font-weight:700;color:var(--forest);">${(o.items||[]).length}개 품목 ${o.modified?`<span class="modified-badge">수정됨</span>`:""}</div>
+            <div style="font-weight:700;color:var(--forest);">${(o.items||[]).length}개 품목 ${o.modified?`<span class="modified-badge">수정됨</span>`:""}${o.cancelRequested?`<span class="modified-badge">취소 요청됨</span>`:""}</div>
             <div style="font-size:12px;color:var(--inkSoft);margin-top:3px;">${esc(kinds)} · ${new Date(o.createdAt).toLocaleDateString("ko-KR")}</div>
           </div>
           <div class="tabular" style="font-weight:700;color:var(--persimmonDark);">${won(t)}</div>
         </div>
-        <button class="btn-ghost" style="width:100%;margin-top:10px;" data-action="editOrder" data-id="${esc(o.id)}">이 주문 수정하기</button>
+        ${o.cancelRequested
+          ? `<div style="margin-top:10px;font-size:12.5px;color:var(--persimmonDark);background:#FBEAE0;border-radius:8px;padding:8px 12px;">취소 요청이 접수됐어요. 농장에서 확인 후 처리해드립니다.</div>`
+          : `<div style="display:flex;gap:8px;margin-top:10px;">
+              <button class="btn-ghost" style="flex:1;" data-action="editOrder" data-id="${esc(o.id)}">주문 수정</button>
+              <button class="btn-ghost danger" style="flex:1;" data-action="requestCancel" data-id="${esc(o.id)}">주문 취소</button>
+            </div>`}
       </div>`;
     }).join("")}
     <button class="btn-ghost" style="width:100%;margin-top:6px;" data-action="backToLanding">← 처음으로</button>
@@ -619,6 +624,7 @@ function deliveryDate(o,it){ return it.giftArrivalDate || (o.createdAt? o.create
 function flattenItems(method){
   const rows=[];
   STATE.orders.forEach(o=>{
+    if(o.cancelRequested) return; // 취소 요청된 주문은 작업 목록/집계에서 제외
     (o.items||[]).forEach(it=>{
       if(it.deliveryMethod!==method) return;
       rows.push({ o, it, itemId: it.itemId });
@@ -745,12 +751,13 @@ function renderOrderManager(){
   ${sorted.map(o=>{
     const items=o.items||[];
     const oTotal=items.reduce((s,it)=>s+(it.totalAmount??0),0);
-    return `<div class="order-card ${o.modified?"modified":""}">
+    return `<div class="order-card ${o.cancelRequested?"modified":o.modified?"modified":""}" ${o.cancelRequested?`style="border-color:var(--alert);background:#FBEAE0;"`:""}>
       <div class="order-card-top">
-        <div style="min-width:0;"><div style="font-weight:700;color:var(--forest);font-size:15px;">${esc(o.name)} ${o.modified?`<span class="modified-badge">수정됨</span>`:""}</div>
+        <div style="min-width:0;"><div style="font-weight:700;color:var(--forest);font-size:15px;">${esc(o.name)} ${o.modified?`<span class="modified-badge">수정됨</span>`:""}${o.cancelRequested?`<span class="modified-badge">🚫 주문자 취소 요청</span>`:""}</div>
           <div style="font-size:12.5px;color:var(--inkSoft);margin-top:2px;">연락처: ${esc(o.phone)}</div></div>
         <div class="tabular" style="font-weight:700;color:var(--persimmonDark);">${won(oTotal)}</div>
       </div>
+      ${o.cancelRequested?`<div style="margin-top:8px;font-size:12.5px;color:var(--persimmonDark);font-weight:700;">⚠️ 주문자가 취소를 요청했습니다. 확인 후 아래 '취소 확인(삭제)'을 눌러주세요.</div>`:""}
       ${items.map(it=>{
         const extra = it.deliveryMethod==="pickup" ? `방문 ${esc(it.visitDate)} ${esc(it.visitTime)} · ☎ ${esc(it.visitPhone)}`
           : it.deliveryMethod==="church" ? `직접전달: ${it.address?esc(it.address):"장소 미입력"} · ${esc(it.churchDate)}`
@@ -771,7 +778,7 @@ function renderOrderManager(){
              <button class="btn-ghost" style="font-size:11.5px;padding:5px 9px;min-height:30px;" data-action="resendSms" data-id="${esc(o.id)}">다시 보내기</button>`
           : `<button class="btn-forest" style="font-size:12px;padding:8px 12px;min-height:36px;width:auto;" data-action="smsOrder" data-id="${esc(o.id)}">✉️ 주문자에게 문자</button>`}
         ${o.modified?`<button class="btn-ghost" style="font-size:12px;padding:6px 10px;color:var(--forest);border-color:var(--forest);" data-action="confirmOrder" data-id="${esc(o.id)}">수정 확인 완료</button>`:""}
-        <button class="btn-ghost danger" style="font-size:12px;padding:6px 10px;" data-action="deleteOrder" data-id="${esc(o.id)}">주문 취소</button>
+        <button class="btn-ghost danger" style="font-size:12px;padding:6px 10px;${o.cancelRequested?"font-weight:700;border-color:var(--alert);":""}" data-action="deleteOrder" data-id="${esc(o.id)}">${o.cancelRequested?"취소 확인(삭제)":"주문 취소"}</button>
       </div>
     </div>`;
   }).join("")}`;
@@ -910,6 +917,7 @@ async function onAction(e){
   if(action==="identifyNext"){ identifyNext(); return; }
   if(action==="lookupOrders"){ await lookupOrders(); return; }
   if(action==="editOrder"){ startEditOrder(id); return; }
+  if(action==="requestCancel"){ await requestCancel(id); return; }
   if(action==="cancelOrderEdit"){ setState({orderStep:"editList",cart:[],item:EMPTY_ITEM(),editingItemId:null,editingOrderId:null,editingCreatedAt:null}); return; }
 
   if(action==="pickFruit"){ setItem({fruitId:id}); return; }
@@ -993,6 +1001,20 @@ function startEditOrder(id){
   const o=STATE.orders.find(x=>x.id===id); if(!o) return;
   const cart=(o.items||[]).map(it=>({ _id:uid(), fruitId:it.fruitId, qty:it.qty, deliveryMethod:it.deliveryMethod||"delivery", address:it.address||"", visitDate:it.visitDate||"", visitTime:it.visitTime||"", visitPhone:it.visitPhone||"", churchDate:it.churchDate||"", isGift:!!it.isGift, receiverName:it.receiverName||"", receiverPhone:it.receiverPhone||"", giftArrivalDate:it.giftArrivalDate||"" }));
   setState({buyer:{name:o.name,phone:o.phone},cart,item:EMPTY_ITEM(),editingItemId:null,editingOrderId:o.id,editingCreatedAt:o.createdAt,orderStep:"build"});
+}
+
+async function requestCancel(id){
+  if(!confirm("정말 취소하시겠습니까?")) return;
+  const o=STATE.orders.find(x=>x.id===id); if(!o) return;
+  const mine=STATE.myOrders.find(x=>x.id===id);
+  o.cancelRequested=true; if(mine) mine.cancelRequested=true;
+  render(); // 낙관적
+  try{
+    await apiPost({action:"requestCancel", id});
+  }catch(e){
+    o.cancelRequested=false; if(mine) mine.cancelRequested=false;
+    setState({saveError:"취소 요청에 실패했어요. 다시 시도해주세요."});
+  }
 }
 
 /* ---- cart ---- */
