@@ -21,7 +21,22 @@ input[type="date"],input[type="time"],select{min-height:44px;}
 
 .header{background:var(--forest);color:#fff;padding:24px 16px 56px;position:relative;overflow:hidden;}
 .header::before{content:"";position:absolute;inset:0;opacity:.08;background-image:repeating-linear-gradient(135deg,#fff 0 2px,transparent 2px 26px);}
-.header-inner{max-width:720px;margin:0 auto;position:relative;}
+.header.has-photo{padding:34px 16px 64px;min-height:230px;display:flex;align-items:flex-end;}
+.header.has-photo::before{display:none;}
+.hero-photos{position:absolute;inset:0;z-index:0;}
+.hero-photo{position:absolute;inset:0;background-size:cover;background-position:center;opacity:0;animation:heroFade 21s infinite;}
+.hero-photo:nth-child(1){animation-delay:0s;}
+.hero-photo:nth-child(2){animation-delay:7s;}
+.hero-photo:nth-child(3){animation-delay:14s;}
+@keyframes heroFade{
+  0%{opacity:0;transform:scale(1.0);}
+  4%{opacity:1;}
+  28%{opacity:1;transform:scale(1.05);}
+  33%{opacity:0;transform:scale(1.05);}
+  100%{opacity:0;}
+}
+.hero-overlay{position:absolute;inset:0;z-index:1;background:linear-gradient(180deg, rgba(24,44,32,.12) 0%, rgba(24,44,32,.34) 45%, rgba(24,44,32,.84) 100%);}
+.header-inner{max-width:720px;margin:0 auto;position:relative;z-index:2;}
 .eyebrow{font-size:12px;letter-spacing:2px;color:var(--gold);margin-bottom:6px;}
 .header h1{font-size:clamp(24px,7vw,32px);margin:0;font-weight:700;line-height:1.25;}
 .header p{margin-top:8px;color:#D9E0D3;font-size:13.5px;line-height:1.6;}
@@ -154,7 +169,7 @@ select.input{background:var(--bg);}
    설정 — APPS_SCRIPT_URL만 본인 것으로 바꿔주세요
    ========================================================= */
 const CONFIG = {
-  APPS_SCRIPT_URL: "https://script.google.com/macros/s/AKfycbwj4wFgDro-z3GD691fyUycIrlluP-mMPwS7MurWvp_M184GFQMxhyGu69zK4AOrB6jLw/exec",
+  APPS_SCRIPT_URL: "https://script.google.com/macros/s/AKfycbx0yZtiX6MvfZX0sXYAyF4k3Hw9UGbGMOqqZThK2tNBl8GrJU2F2FwtOpPK8wF20RoJ/exec",
   ADMIN_PIN: "1004",
   FARM_ADDRESS: "경기도 안성시 삼죽면 하냉길 33-58",
   SHIPPING_FEE: 4000,
@@ -217,6 +232,7 @@ let STATE = {
   smsTemplateDelay: "",
   smsDefault: "normal",
   notifyEmail: "",
+  landingPhotos: ["", "", ""], // 대문화면 배경사진 최대 3장
   availability: [], // [{id, date, start, end}]
   loaded: false,
   loadError: "",
@@ -266,6 +282,7 @@ async function loadAll(silent){
       smsTemplateDelay: data.smsTemplateDelay!==undefined?data.smsTemplateDelay:STATE.smsTemplateDelay,
       smsDefault: data.smsDefault!==undefined?data.smsDefault:STATE.smsDefault,
       notifyEmail: data.notifyEmail!==undefined?data.notifyEmail:STATE.notifyEmail,
+      landingPhotos: [data.landingPhoto1||"", data.landingPhoto2||"", data.landingPhoto3||""],
       availability: data.availability||[],
       loaded:true, loadError:"",
     };
@@ -310,8 +327,12 @@ function render(){
     app.innerHTML = `<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;"><div class="crate" style="max-width:420px;"><div class="display" style="font-size:20px;color:var(--forest);margin-bottom:10px;">설정이 필요해요</div><div style="font-size:13.5px;line-height:1.8;color:var(--inkSoft);">index.html 맨 위 <code>CONFIG.APPS_SCRIPT_URL</code> 값을 구글 Apps Script 웹 앱 URL로 바꿔주세요. 설치 가이드를 참고해주세요.</div></div></div>`;
     return;
   }
+  const heroPhotos=(STATE.landingPhotos||[]).filter(Boolean);
+  const showHero = heroPhotos.length>0 && STATE.view==="order" && STATE.orderStep==="landing";
   app.innerHTML = `
-    <div class="header"><div class="header-inner">
+    <div class="header ${showHero?"has-photo":""}">
+      ${showHero?`<div class="hero-photos">${heroPhotos.map(src=>`<div class="hero-photo" style="background-image:url('${esc(src)}')"></div>`).join("")}</div><div class="hero-overlay"></div>`:""}
+      <div class="header-inner">
       <div class="eyebrow">${STATE.businessName?esc(STATE.businessName):"ORCHARD DIRECT"}</div>
       <h1>과수원 직거래 장터</h1>
       <p>나무에서 바로 딴 과일을, 믿을 수 있는 분께 직접 보내드립니다.</p>
@@ -682,6 +703,16 @@ function renderAccountManager(){
     <div class="field"><div class="field-head"><label class="field-label">농장 주소</label><span class="hint">첫 화면에 표시</span></div><input class="input" data-bind="farmAddress" value="${esc(STATE.farmAddress||CONFIG.FARM_ADDRESS)}" placeholder="농장 주소" /></div>
     <div class="field"><div class="field-head"><label class="field-label">농장 연락처</label><span class="hint">첫 화면에 표시</span></div><input class="input" type="tel" inputmode="tel" data-bind="farmPhone" value="${esc(STATE.farmPhone)}" placeholder="010-0000-0000" /></div>
 
+    <div class="section-label" style="margin-top:8px;">대문화면 배경사진 <span class="hint" style="font-weight:400;">(최대 3장, 비우면 기본 초록 배경)</span></div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:18px;">
+      ${[0,1,2].map(i=>{ const src=(STATE.landingPhotos||[])[i]||""; return `
+      <div style="display:flex;flex-direction:column;align-items:center;gap:6px;">
+        <div class="fruit-thumb-admin" style="width:76px;height:76px;">${src?`<img src="${esc(src)}" alt=""/>`:"🖼"}</div>
+        <label class="btn-ghost" style="margin:0;padding:6px 10px;min-height:32px;font-size:11.5px;">${src?"변경":"📷 선택"}<input type="file" accept="image/*" data-imgfor="landing${i}" style="display:none;" /></label>
+        ${src?`<button class="btn-ghost danger" style="padding:6px 10px;min-height:30px;font-size:11px;" data-action="clearLandingPhoto" data-idx="${i}">삭제</button>`:""}
+      </div>`;}).join("")}
+    </div>
+
     <div class="section-label" style="margin-top:8px;">농장주 인사말</div>
     <div class="field"><div class="field-head"><label class="field-label">첫 화면 인사말</label><span class="hint">비우면 표시 안 함</span></div><textarea class="input" data-bind="greeting" rows="4" placeholder="예: 안녕하세요, 정성껏 키운 과일을 보내드립니다.">${esc(STATE.greeting)}</textarea></div>
 
@@ -1048,6 +1079,7 @@ async function onAction(e){
   if(action==="saveEditOrderItem"){ await saveEditOrderItem(); return; }
   if(action==="addFruit"){ await addFruit(); return; }
   if(action==="clearNewFruitImage"){ STATE.fruitForm.image=""; render(); return; }
+  if(action==="clearLandingPhoto"){ await clearLandingPhoto(parseInt(el.getAttribute("data-idx"),10)); return; }
   if(action==="toggleFruit"){ await toggleFruit(id); return; }
   if(action==="deleteFruit"){ await deleteFruit(id); return; }
   if(action==="openEditFruit"){ const f=fruitById(id); if(f){STATE.editFruit={id:f.id,name:f.name,price:f.price,stock:f.stock,image:f.image||"",saleStartDate:f.saleStartDate||""};render();} return; }
@@ -1083,12 +1115,32 @@ async function onImagePicked(e){
   const target=e.currentTarget.getAttribute("data-imgfor");
   const file=e.currentTarget.files&&e.currentTarget.files[0];
   if(!file) return;
+  if(target && target.indexOf("landing")===0){
+    try{
+      const idx=parseInt(target.replace("landing",""),10);
+      const dataUrl=await compressImage(file,500,0.55); // 시트 셀 용량 한도 고려해 더 작게 압축
+      STATE.landingPhotos=[...(STATE.landingPhotos||["","",""])];
+      STATE.landingPhotos[idx]=dataUrl;
+      render();
+      const key="landingPhoto"+(idx+1);
+      await apiPost({action:"setSettings",[key]:dataUrl});
+    }catch(err){ setState({saveError:"사진 처리에 실패했어요. 다른 사진으로 시도해주세요."}); }
+    return;
+  }
   try{
     const dataUrl=await compressImage(file,600,0.7);
     if(target==="new"){ STATE.fruitForm.image=dataUrl; render(); }
     else if(target==="edit"){ STATE.editFruit.image=dataUrl; render(); }
     else{ const fr=fruitById(target); if(fr)fr.image=dataUrl; render(); await apiPost({action:"updateFruit",id:target,patch:{image:dataUrl}}); }
   }catch(err){ setState({saveError:"사진 처리에 실패했어요. 다른 사진으로 시도해주세요."}); }
+}
+async function clearLandingPhoto(idx){
+  STATE.landingPhotos=[...(STATE.landingPhotos||["","",""])];
+  const prev=STATE.landingPhotos[idx];
+  STATE.landingPhotos[idx]="";
+  render();
+  try{ const key="landingPhoto"+(idx+1); await apiPost({action:"setSettings",[key]:""}); }
+  catch(err){ STATE.landingPhotos[idx]=prev; setState({saveError:"삭제에 실패했어요."}); }
 }
 
 /* ---- identify / lookup ---- */
