@@ -99,6 +99,9 @@ select.input{background:var(--bg);}
 .gift-toggle input{width:20px;height:20px;flex-shrink:0;}
 
 .box-panel{display:flex;flex-direction:column;gap:14px;background:var(--bgAlt);border-radius:10px;padding:14px;margin-bottom:18px;}
+.visit-notice{font-size:13px;line-height:1.6;color:var(--forestDark);background:#E9F0E4;border:1px solid #BFD4B2;border-left:4px solid var(--forest);border-radius:8px;padding:10px 12px;}
+.visit-notice b{color:var(--persimmonDark);}
+.visit-notice.warn{color:var(--persimmonDark);background:#FBEAE0;border-color:#EBC6B0;border-left-color:var(--persimmon);}
 .box-panel .field{margin-bottom:0;}
 .two-col{display:flex;flex-wrap:wrap;gap:10px;}
 .two-col>div{flex:1 1 130px;}
@@ -190,6 +193,9 @@ function _todayStr(){ const d=new Date(); return d.getFullYear()+"-"+String(d.ge
 function isOnSale(f){ return f.active && (!f.saleStartDate || f.saleStartDate <= _todayStr()); }
 function isUpcoming(f){ return f.active && f.saleStartDate && f.saleStartDate > _todayStr(); }
 function fmtSaleDate(s){ if(!s) return ""; const p=s.split("-"); return p.length===3?`${parseInt(p[1])}월 ${parseInt(p[2])}일`:s; }
+// "2026-07-10" → "2026.7.10(수)" 형태로 표기
+const _WD=["일","월","화","수","목","금","토"];
+function fmtKDate(s){ if(!s) return ""; const p=String(s).split("-"); if(p.length!==3) return s; const y=+p[0],m=+p[1],d=+p[2]; const wd=_WD[new Date(y,m-1,d).getDay()]; return `${y}.${m}.${d}(${wd})`; }
 
 // 장바구니에 담기 전 "지금 담는 항목" 편집 폼
 const EMPTY_ITEM = () => ({
@@ -315,6 +321,19 @@ function timeSlots(date){
     const [sh,sm]=w.start.split(":").map(Number);
     const [eh,em]=w.end.split(":").map(Number);
     let t=sh*60+sm; const end=eh*60+em;
+    while(t<=end){ const hh=String(Math.floor(t/60)).padStart(2,"0"); const mm=String(t%60).padStart(2,"0"); slots.push(hh+":"+mm); t+=30; }
+  });
+  return [...new Set(slots)].sort();
+}
+// 등록된 모든 상주 시간대를 합쳐 30분 단위 슬롯으로 (날짜와 무관하게 시간 선택용)
+function allTimeSlots(){
+  const slots=[];
+  STATE.availability.forEach(w=>{
+    if(!w.start||!w.end) return;
+    const [sh,sm]=String(w.start).split(":").map(Number);
+    const [eh,em]=String(w.end).split(":").map(Number);
+    if(isNaN(sh)||isNaN(eh)) return;
+    let t=sh*60+(sm||0); const end=eh*60+(em||0);
     while(t<=end){ const hh=String(Math.floor(t/60)).padStart(2,"0"); const mm=String(t%60).padStart(2,"0"); slots.push(hh+":"+mm); t+=30; }
   });
   return [...new Set(slots)].sort();
@@ -580,22 +599,24 @@ function renderBuild(){
 function renderVisitFields(it,e,dates){
   // 상주 일정이 등록돼 있으면 그 날짜/시간만 선택지로 제공
   const hasWindows = dates.length>0;
-  const slots = it.visitDate? timeSlots(it.visitDate):[];
+  // 방문 시간: 날짜와 무관하게 등록된 모든 상주 시간대를 합쳐 별도 선택
+  const allSlots = allTimeSlots();
   return `<div class="box-panel">
     <div style="font-size:13px;color:var(--forest);font-weight:700;">📍 과수원 주소: ${esc(CONFIG.FARM_ADDRESS)}</div>
     ${hasWindows?`
-      <div class="field"><div class="field-head"><label class="field-label">방문 날짜 <span class="req">*</span></label><span class="hint">농장주 상주일만 선택 가능</span></div>
+      <div class="visit-notice">📅 <b>농장주 상주일에만</b> 방문하실 수 있어요. 아래 목록에서 골라주세요.</div>
+      <div class="field"><div class="field-head"><label class="field-label">방문 날짜 <span class="req">*</span></label></div>
         <select class="input" data-bind="itemVisitDate">
           <option value="">날짜 선택</option>
-          ${dates.map(d=>`<option value="${d}" ${it.visitDate===d?"selected":""}>${d} (${windowsForDate(d).map(w=>w.start+"~"+w.end).join(", ")})</option>`).join("")}
+          ${dates.map(d=>`<option value="${d}" ${it.visitDate===d?"selected":""}>${fmtKDate(d)}</option>`).join("")}
         </select>${e.visitDate?`<div class="err">${e.visitDate}</div>`:""}</div>
-      <div class="field"><div class="field-head"><label class="field-label">방문 시간 <span class="req">*</span></label></div>
-        <select class="input" data-bind="itemVisitTime" ${!it.visitDate?"disabled":""}>
-          <option value="">${it.visitDate?"시간 선택":"날짜를 먼저 선택하세요"}</option>
-          ${slots.map(s=>`<option value="${s}" ${it.visitTime===s?"selected":""}>${s}</option>`).join("")}
+      <div class="field"><div class="field-head"><label class="field-label">방문 시간 <span class="req">*</span></label><span class="hint">30분 단위</span></div>
+        <select class="input" data-bind="itemVisitTime">
+          <option value="">시간 선택</option>
+          ${allSlots.map(s=>`<option value="${s}" ${it.visitTime===s?"selected":""}>${s}</option>`).join("")}
         </select>${e.visitTime?`<div class="err">${e.visitTime}</div>`:""}</div>
     `:`
-      <div style="font-size:12.5px;color:var(--persimmonDark);">아직 농장주 상주 일정이 등록되지 않았어요. 관리자에게 방문 가능 일정을 문의해주세요.</div>
+      <div class="visit-notice warn">아직 농장주 상주 일정이 등록되지 않았어요. 관리자에게 방문 가능 일정을 문의해주세요.</div>
       <div class="two-col">
         <div class="field"><div class="field-head"><label class="field-label">방문 날짜 <span class="req">*</span></label></div><input class="input" type="date" data-bind="itemVisitDate" value="${esc(it.visitDate)}" />${e.visitDate?`<div class="err">${e.visitDate}</div>`:""}</div>
         <div class="field"><div class="field-head"><label class="field-label">방문 시간 <span class="req">*</span></label></div><input class="input" type="time" data-bind="itemVisitTime" value="${esc(it.visitTime)}" />${e.visitTime?`<div class="err">${e.visitTime}</div>`:""}</div>
@@ -887,9 +908,9 @@ function renderOrderManager(){
       </div>
       ${o.cancelRequested?`<div style="margin-top:8px;font-size:12.5px;color:var(--persimmonDark);font-weight:700;">⚠️ 주문자가 취소를 요청했습니다. 확인 후 아래 '취소 확인(삭제)'을 눌러주세요.</div>`:""}
       ${items.map(it=>{
-        const extra = it.deliveryMethod==="pickup" ? `방문 ${esc(it.visitDate)} ${esc(it.visitTime)} · ☎ ${esc(it.visitPhone)}`
-          : it.deliveryMethod==="church" ? `직접전달: ${it.address?esc(it.address):"장소 미입력"} · ${esc(it.churchDate)}`
-          : (it.address?`주소: ${esc(it.address)}`:"주소 미입력")+(it.giftArrivalDate?` · 받으실날 ${esc(it.giftArrivalDate)}`:"");
+        const extra = it.deliveryMethod==="pickup" ? `방문 ${esc(fmtKDate(it.visitDate))} ${esc(it.visitTime)} · ☎ ${esc(it.visitPhone)}`
+          : it.deliveryMethod==="church" ? `직접전달: ${it.address?esc(it.address):"장소 미입력"} · ${esc(fmtKDate(it.churchDate))}`
+          : (it.address?`주소: ${esc(it.address)}`:"주소 미입력")+(it.giftArrivalDate?` · 받으실날 ${esc(fmtKDate(it.giftArrivalDate))}`:"");
         const gift = it.isGift?` · 🎁 ${esc(it.receiverName)}${it.receiverPhone?"("+esc(it.receiverPhone)+")":""}${it.giftArrivalDate?` 도착희망 ${esc(it.giftArrivalDate)}`:""}`:"";
         const changed = it.itemModifiedAt && (it.origQty!==undefined);
         const changeLine = changed ? `<div style="font-size:11.5px;color:var(--alert);margin-top:3px;">
@@ -1008,8 +1029,6 @@ function onBind(e){
   if(itemKeys[key]){
     const k=itemKeys[key];
     STATE.item[k] = k==="qty"?Math.max(1,parseInt(val)||1):val;
-    // 방문 날짜가 바뀌면 시간 초기화
-    if(k==="visitDate") STATE.item.visitTime="";
     if(["qty","isGift","visitDate","deliveryMethod"].includes(k) || e.target.tagName==="SELECT") render();
     return;
   }
