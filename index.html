@@ -172,7 +172,7 @@ select.input{background:var(--bg);}
    설정 — APPS_SCRIPT_URL만 본인 것으로 바꿔주세요
    ========================================================= */
 const CONFIG = {
-  APPS_SCRIPT_URL: "https://script.google.com/macros/s/AKfycbzJX-UWuVWAHITka3jgCWW0zJBht0MLb8t42cGu3WF-hQ30d4QsqYX7p4d3_K3ff2GAhQ/exec",
+  APPS_SCRIPT_URL: "https://script.google.com/macros/s/AKfycbzNOYOTHRFxWwizSWfjEpFQGgPKSjU7o065hjayHNPEfvu5OPcjmi8XQn-ftRPK9MaGhg/exec",
   ADMIN_PIN: "1004",
   FARM_ADDRESS: "경기도 안성시 삼죽면 하냉길 33-58",
   SHIPPING_FEE: 4000,
@@ -193,9 +193,38 @@ function _todayStr(){ const d=new Date(); return d.getFullYear()+"-"+String(d.ge
 function isOnSale(f){ return f.active && (!f.saleStartDate || f.saleStartDate <= _todayStr()); }
 function isUpcoming(f){ return f.active && f.saleStartDate && f.saleStartDate > _todayStr(); }
 function fmtSaleDate(s){ if(!s) return ""; const p=s.split("-"); return p.length===3?`${parseInt(p[1])}월 ${parseInt(p[2])}일`:s; }
-// "2026-07-10" → "2026.7.10(수)" 형태로 표기
+// 어떤 형태로 들어와도 "YYYY-MM-DD"로 정규화.
+// 서버가 재배포 전이라 "Wed Jul 22 2026 00:00:00 GMT+0900 (한국 표준시)" 같은
+// 깨진 문자열을 보내도 여기서 안전하게 날짜만 뽑아냄.
+function normDate(s){
+  if(!s) return "";
+  const str=String(s).trim();
+  // 이미 2026-07-22 형태
+  let m=str.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if(m){ return m[1]+"-"+String(+m[2]).padStart(2,"0")+"-"+String(+m[3]).padStart(2,"0"); }
+  // 2026.7.22 형태
+  m=str.match(/^(\d{4})[.\/](\d{1,2})[.\/](\d{1,2})/);
+  if(m){ return m[1]+"-"+String(+m[2]).padStart(2,"0")+"-"+String(+m[3]).padStart(2,"0"); }
+  // "Wed Jul 22 2026 ..." 형태: 월 이름·일·연도를 직접 뽑아 타임존 변환 오차 방지
+  const MON={Jan:1,Feb:2,Mar:3,Apr:4,May:5,Jun:6,Jul:7,Aug:8,Sep:9,Oct:10,Nov:11,Dec:12};
+  m=str.match(/\b([A-Z][a-z]{2})\s+(\d{1,2})\s+(\d{4})\b/);
+  if(m && MON[m[1]]){ return m[3]+"-"+String(MON[m[1]]).padStart(2,"0")+"-"+String(+m[2]).padStart(2,"0"); }
+  // 최후 수단: JS Date 파싱
+  const d=new Date(str);
+  if(!isNaN(d.getTime())){ return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); }
+  return str;
+}
+// 시간 문자열 정규화: "09:00" 또는 깨진 "Sat Dec 30 1899 12:00:00 ..." → "HH:mm"
+function normTime(s){
+  if(!s) return "";
+  const str=String(s).trim();
+  let m=str.match(/(\d{1,2}):(\d{2})/);
+  if(m){ return String(+m[1]).padStart(2,"0")+":"+m[2]; }
+  return str;
+}
+// "2026-07-10"(또는 깨진 값) → "2026.7.10(수)" 형태로 표기
 const _WD=["일","월","화","수","목","금","토"];
-function fmtKDate(s){ if(!s) return ""; const p=String(s).split("-"); if(p.length!==3) return s; const y=+p[0],m=+p[1],d=+p[2]; const wd=_WD[new Date(y,m-1,d).getDay()]; return `${y}.${m}.${d}(${wd})`; }
+function fmtKDate(s){ const n=normDate(s); const p=n.split("-"); if(p.length!==3) return n; const y=+p[0],m=+p[1],d=+p[2]; const wd=_WD[new Date(y,m-1,d).getDay()]; return `${y}.${m}.${d}(${wd})`; }
 
 // 장바구니에 담기 전 "지금 담는 항목" 편집 폼
 const EMPTY_ITEM = () => ({
@@ -290,7 +319,7 @@ async function loadAll(silent){
       smsDefault: data.smsDefault!==undefined?data.smsDefault:STATE.smsDefault,
       notifyEmail: data.notifyEmail!==undefined?data.notifyEmail:STATE.notifyEmail,
       landingPhotos: [data.landingPhoto1||"", data.landingPhoto2||"", data.landingPhoto3||""],
-      availability: data.availability||[],
+      availability: (data.availability||[]).map(a=>({ ...a, date: normDate(a.date), start: normTime(a.start), end: normTime(a.end) })),
       loaded:true, loadError:"",
     };
     const typing = document.activeElement && /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);
