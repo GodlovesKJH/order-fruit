@@ -169,7 +169,7 @@ select.input{background:var(--bg);}
    설정 — APPS_SCRIPT_URL만 본인 것으로 바꿔주세요
    ========================================================= */
 const CONFIG = {
-  APPS_SCRIPT_URL: "https://script.google.com/macros/s/AKfycbx0yZtiX6MvfZX0sXYAyF4k3Hw9UGbGMOqqZThK2tNBl8GrJU2F2FwtOpPK8wF20RoJ/exec",
+  APPS_SCRIPT_URL: "https://script.google.com/macros/s/AKfycbzJX-UWuVWAHITka3jgCWW0zJBht0MLb8t42cGu3WF-hQ30d4QsqYX7p4d3_K3ff2GAhQ/exec",
   ADMIN_PIN: "1004",
   FARM_ADDRESS: "경기도 안성시 삼죽면 하냉길 33-58",
   SHIPPING_FEE: 4000,
@@ -217,6 +217,7 @@ let STATE = {
   editingCreatedAt: null,
   submitting: false,
   doneMode: "new",
+  showDoneNotice: false,
   copied: false,
   adminUnlocked: false,
   pinInput: "",
@@ -914,6 +915,15 @@ function renderOrderManager(){
 /* ---------------- Modal (fruit edit) ---------------- */
 function renderModal(){
   const root=document.getElementById("modal-root");
+  if(STATE.showDoneNotice){
+    root.innerHTML=`<div class="modal-overlay" data-action="closeDoneNotice"><div class="modal" data-stop="1" style="text-align:center;max-width:360px;">
+      <div style="font-size:32px;margin-bottom:8px;">📩</div>
+      <div class="display" style="font-size:17px;color:var(--forest);margin-bottom:10px;">꼭 확인해주세요</div>
+      <div style="font-size:13.5px;color:var(--ink);line-height:1.8;margin-bottom:18px;">주문 완료 후 주문 접수 안내문이 1일 이내 오지 않으면 꼭 농장주에게 문의해주시기 바랍니다.</div>
+      <button class="btn-primary" style="width:100%;" data-action="closeDoneNotice">확인했어요</button>
+    </div></div>`;
+    return;
+  }
   if(STATE.editOrderItem){ root.innerHTML=renderEditOrderItemModal(); return; }
   if(!STATE.editFruit){ root.innerHTML=""; return; }
   const ef=STATE.editFruit;
@@ -1052,7 +1062,7 @@ async function onAction(e){
   if(action==="setView"){ setState({view:v}); loadAll(true); return; }
   if(action==="startNew"){ setState({buyer:{name:"",phone:""},cart:[],item:EMPTY_ITEM(),editingItemId:null,editingOrderId:null,editingCreatedAt:null,orderStep:"build"}); return; }
   if(action==="startEdit"){ setState({identifyMode:"edit",identify:{name:"",phone:"",error:""},orderStep:"identify"}); return; }
-  if(action==="backToLanding"){ setState({orderStep:"landing",cart:[],item:EMPTY_ITEM(),editingItemId:null,editingOrderId:null,editingCreatedAt:null,myOrders:[],buyer:{name:"",phone:""},buyerForm:{name:"",phone:"",err:false}}); return; }
+  if(action==="backToLanding"){ setState({orderStep:"landing",cart:[],item:EMPTY_ITEM(),editingItemId:null,editingOrderId:null,editingCreatedAt:null,myOrders:[],buyer:{name:"",phone:""},buyerForm:{name:"",phone:"",err:false},showDoneNotice:false}); return; }
   if(action==="identifyNext"){ identifyNext(); return; }
   if(action==="lookupOrders"){ await lookupOrders(); return; }
   if(action==="editOrder"){ startEditOrder(id); return; }
@@ -1071,6 +1081,7 @@ async function onAction(e){
   if(action==="submitOrder"){ await submitOrder(); return; }
 
   if(action==="checkPin"){ checkPin(); return; }
+  if(action==="closeDoneNotice"){ setState({showDoneNotice:false}); return; }
   if(action==="setAdminTab"){ setState({adminTab:v}); if(v==="orders"||v==="work") loadAll(true); return; }
   if(action==="setWorkSub"){ setState({workSub:v}); return; }
   if(action==="markItemDone"){ await markItemDone(el.getAttribute("data-oid"), el.getAttribute("data-iid"), el.getAttribute("data-field")); return; }
@@ -1239,7 +1250,7 @@ async function submitOrder(){
   try{
     await apiPost({action:editing?"updateOrder":"addOrder", order});
     STATE._doneTotal=cartTotal();
-    setState({submitting:false,orderStep:"done",doneMode:editing?"edit":"new",cart:[],item:EMPTY_ITEM(),editingOrderId:null,editingCreatedAt:null});
+    setState({submitting:false,orderStep:"done",doneMode:editing?"edit":"new",cart:[],item:EMPTY_ITEM(),editingOrderId:null,editingCreatedAt:null,showDoneNotice:true});
     loadAll(true);
   }catch(e){ setState({submitting:false,saveError:"주문 저장에 실패했어요. 잠시 후 다시 시도해주세요."}); }
 }
