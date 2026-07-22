@@ -172,7 +172,7 @@ select.input{background:var(--bg);}
    설정 — APPS_SCRIPT_URL만 본인 것으로 바꿔주세요
    ========================================================= */
 const CONFIG = {
-  APPS_SCRIPT_URL: "https://script.google.com/macros/s/AKfycbzNOYOTHRFxWwizSWfjEpFQGgPKSjU7o065hjayHNPEfvu5OPcjmi8XQn-ftRPK9MaGhg/exec",
+  APPS_SCRIPT_URL: "https://script.google.com/macros/s/AKfycbzPMrqotNPgrbf45v658b1OQhtZSDJrfbAYEIukldOzv1J8m8nFKz4ex4pFhaoGGgxnwQ/exec",
   ADMIN_PIN: "1004",
   FARM_ADDRESS: "경기도 안성시 삼죽면 하냉길 33-58",
   SHIPPING_FEE: 4000,
@@ -242,8 +242,8 @@ let STATE = {
   orderStep: "landing", // landing → identify → editList → build(담기+장바구니) → done
   identifyMode: "new",
   identify: { name: "", phone: "", error: "" },
-  buyer: { name: "", phone: "" },
-  buyerForm: { name: "", phone: "", err: false },
+  buyer: { name: "", phone: "", referrer: "" },
+  buyerForm: { name: "", phone: "", referrer: "", err: false },
   cart: [],
   item: EMPTY_ITEM(),
   editingItemId: null,     // 장바구니 안에서 특정 항목 수정 중
@@ -617,6 +617,7 @@ function renderBuild(){
         <div class="section-label">주문자 정보</div>
         <div class="field"><div class="field-head"><label class="field-label">이름 <span class="req">*</span></label></div><input class="input" data-bind="buyerName" placeholder="주문자 성함" value="${esc(STATE.buyerForm.name)}" />${STATE.buyerForm.err&&!STATE.buyerForm.name.trim()?`<div class="err">이름을 입력해주세요.</div>`:""}</div>
         <div class="field"><div class="field-head"><label class="field-label">연락처 <span class="req">*</span></label></div><input class="input" type="tel" inputmode="tel" data-bind="buyerPhone" placeholder="010-0000-0000" value="${esc(STATE.buyerForm.phone)}" />${STATE.buyerForm.err&&!digits(STATE.buyerForm.phone)?`<div class="err">연락처를 입력해주세요.</div>`:""}</div>
+        <div class="field"><div class="field-head"><label class="field-label">소개해주신 분</label><span class="hint">선택 · 안 적으셔도 돼요</span></div><input class="input" data-bind="buyerReferrer" placeholder="예) 김철수님" value="${esc(STATE.buyerForm.referrer)}" /></div>
       `:""}
 
       <button class="btn-primary" data-action="submitOrder" ${STATE.submitting?"disabled":""}>${STATE.submitting?`<span class="spinner"></span> ${STATE.editingOrderId?"저장 중…":"접수 중…"}`:`${STATE.editingOrderId?"수정 내용 저장":"주문 완료하기"} (${won(cartTotal())})`}</button>
@@ -932,7 +933,7 @@ function renderOrderManager(){
     return `<div class="order-card ${o.cancelRequested?"modified":o.modified?"modified":""}" ${o.cancelRequested?`style="border-color:var(--alert);background:#FBEAE0;"`:""}>
       <div class="order-card-top">
         <div style="min-width:0;"><div style="font-weight:700;color:var(--forest);font-size:15px;">${esc(o.name)} ${o.modified?`<span class="modified-badge">수정됨</span>`:""}${o.cancelRequested?`<span class="modified-badge">🚫 주문자 취소 요청</span>`:""}</div>
-          <div style="font-size:12.5px;color:var(--inkSoft);margin-top:2px;">연락처: ${esc(o.phone)}</div></div>
+          <div style="font-size:12.5px;color:var(--inkSoft);margin-top:2px;">연락처: ${esc(o.phone)}</div>${o.referrer?`<div style="font-size:12.5px;color:var(--wood);margin-top:2px;">🤝 소개: ${esc(o.referrer)}</div>`:""}</div>
         <div class="tabular" style="font-weight:700;color:var(--persimmonDark);">${won(oTotal)}</div>
       </div>
       ${o.cancelRequested?`<div style="margin-top:8px;font-size:12.5px;color:var(--persimmonDark);font-weight:700;">⚠️ 주문자가 취소를 요청했습니다. 확인 후 아래 '취소 확인(삭제)'을 눌러주세요.</div>`:""}
@@ -1065,6 +1066,7 @@ function onBind(e){
   if(key==="idPhone"){ STATE.identify.phone=val; return; }
   if(key==="buyerName"){ STATE.buyerForm.name=val; return; }
   if(key==="buyerPhone"){ STATE.buyerForm.phone=val; return; }
+  if(key==="buyerReferrer"){ STATE.buyerForm.referrer=val; return; }
   if(key==="businessName"){ STATE.businessName=val; return; }
   if(key==="greeting"){ STATE.greeting=val; return; }
   if(key==="farmPhone"){ STATE.farmPhone=val; return; }
@@ -1108,7 +1110,7 @@ async function onAction(e){
   const el=e.currentTarget, action=el.getAttribute("data-action"), id=el.getAttribute("data-id"), v=el.getAttribute("data-v");
 
   if(action==="setView"){ setState({view:v}); loadAll(true); return; }
-  if(action==="startNew"){ setState({buyer:{name:"",phone:""},cart:[],item:EMPTY_ITEM(),editingItemId:null,editingOrderId:null,editingCreatedAt:null,orderStep:"build"}); return; }
+  if(action==="startNew"){ setState({buyer:{name:"",phone:"",referrer:""},buyerForm:{name:"",phone:"",referrer:"",err:false},cart:[],item:EMPTY_ITEM(),editingItemId:null,editingOrderId:null,editingCreatedAt:null,orderStep:"build"}); return; }
   if(action==="startEdit"){ setState({identifyMode:"edit",identify:{name:"",phone:"",error:""},orderStep:"identify"}); return; }
   if(action==="backToLanding"){ setState({orderStep:"landing",cart:[],item:EMPTY_ITEM(),editingItemId:null,editingOrderId:null,editingCreatedAt:null,myOrders:[],buyer:{name:"",phone:""},buyerForm:{name:"",phone:"",err:false},showDoneNotice:false}); return; }
   if(action==="identifyNext"){ identifyNext(); return; }
@@ -1218,8 +1220,8 @@ async function lookupOrders(){
 }
 function startEditOrder(id){
   const o=STATE.orders.find(x=>x.id===id); if(!o) return;
-  const cart=(o.items||[]).map(it=>({ _id:uid(), fruitId:it.fruitId, qty:it.qty, deliveryMethod:it.deliveryMethod||"delivery", address:it.address||"", visitDate:it.visitDate||"", visitTime:it.visitTime||"", visitPhone:it.visitPhone||"", churchDate:it.churchDate||"", isGift:!!it.isGift, receiverName:it.receiverName||"", receiverPhone:it.receiverPhone||"", giftArrivalDate:it.giftArrivalDate||"" }));
-  setState({buyer:{name:o.name,phone:o.phone},cart,item:EMPTY_ITEM(),editingItemId:null,editingOrderId:o.id,editingCreatedAt:o.createdAt,orderStep:"build"});
+  const cart=(o.items||[]).map(it=>({ _id:uid(), fruitId:it.fruitId, qty:it.qty, deliveryMethod:it.deliveryMethod||"delivery", address:it.address||"", visitDate:normDate(it.visitDate||""), visitTime:normTime(it.visitTime||""), visitPhone:it.visitPhone||"", churchDate:normDate(it.churchDate||""), isGift:!!it.isGift, receiverName:it.receiverName||"", receiverPhone:it.receiverPhone||"", giftArrivalDate:normDate(it.giftArrivalDate||"") }));
+  setState({buyer:{name:o.name,phone:o.phone,referrer:o.referrer||""},buyerForm:{name:o.name,phone:o.phone,referrer:o.referrer||"",err:false},cart,item:EMPTY_ITEM(),editingItemId:null,editingOrderId:o.id,editingCreatedAt:o.createdAt,orderStep:"build"});
 }
 
 async function requestCancel(id){
@@ -1279,7 +1281,7 @@ async function submitOrder(){
     if(!STATE.buyerForm.name.trim() || !digits(STATE.buyerForm.phone)){
       STATE.buyerForm.err=true; render(); return;
     }
-    STATE.buyer={ name:STATE.buyerForm.name.trim(), phone:STATE.buyerForm.phone.trim() };
+    STATE.buyer={ name:STATE.buyerForm.name.trim(), phone:STATE.buyerForm.phone.trim(), referrer:(STATE.buyerForm.referrer||"").trim() };
   }
   STATE.submitting=true; render();
   const editing=!!STATE.editingOrderId;
@@ -1293,7 +1295,7 @@ async function submitOrder(){
       isGift:ci.isGift, receiverName:ci.receiverName, receiverPhone:ci.receiverPhone, giftArrivalDate:ci.giftArrivalDate,
       delivered:false, prepared:false };
   });
-  const order={ id:editing?STATE.editingOrderId:uid(), name:STATE.buyer.name, phone:STATE.buyer.phone, items,
+  const order={ id:editing?STATE.editingOrderId:uid(), name:STATE.buyer.name, phone:STATE.buyer.phone, referrer:(editing?(STATE.buyer.referrer||""):(STATE.buyer.referrer||"")), items,
     createdAt:editing?STATE.editingCreatedAt:new Date().toISOString(), modified:editing, modifiedAt:editing?new Date().toISOString():"" };
   try{
     await apiPost({action:editing?"updateOrder":"addOrder", order});
