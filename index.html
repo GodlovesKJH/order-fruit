@@ -149,6 +149,28 @@ select.input{background:var(--bg);}
 .order-card.modified{border-color:var(--alert);}
 .order-card-top{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:flex-start;gap:8px;}
 .order-card .meta{font-size:12.5px;color:var(--inkSoft);margin-top:8px;line-height:1.7;}
+.msg-thread{margin-top:10px;display:flex;flex-direction:column;gap:6px;}
+.msg-bubble{max-width:85%;padding:8px 11px;border-radius:12px;font-size:12.5px;line-height:1.55;white-space:pre-wrap;word-break:break-word;}
+.msg-bubble .who{font-size:10.5px;opacity:.7;margin-bottom:2px;}
+.msg-buyer{align-self:flex-start;background:var(--bgAlt);color:var(--ink);border-bottom-left-radius:3px;}
+.msg-farmer{align-self:flex-end;background:#E9F0E4;color:var(--forestDark);border-bottom-right-radius:3px;}
+.msg-empty{font-size:12px;color:var(--inkSoft);font-style:italic;}
+.msg-input-row{display:flex;gap:6px;margin-top:8px;}
+.msg-input-row textarea{flex:1;resize:vertical;min-height:38px;}
+.news-banner{max-width:480px;margin:16px auto 0;background:linear-gradient(180deg,#FBF3DF,#F7ECCB);border:1px solid #E4D08A;border-radius:12px;padding:12px 14px;cursor:pointer;display:flex;align-items:center;gap:10px;box-shadow:0 2px 8px -5px rgba(160,120,20,.4);}
+.news-banner .npin{font-size:18px;}
+.news-banner .ntxt{flex:1;min-width:0;}
+.news-banner .ntitle{font-weight:700;color:var(--persimmonDark);font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.news-banner .ndate{font-size:11px;color:var(--wood);margin-top:1px;}
+.news-banner .nchev{color:var(--wood);font-size:13px;}
+.news-panel{max-width:480px;margin:8px auto 0;background:#fff;border:1px solid var(--line);border-radius:12px;overflow:hidden;}
+.news-item{padding:14px 16px;border-bottom:1px solid var(--line);}
+.news-item:last-child{border-bottom:none;}
+.news-item .nih{font-weight:700;color:var(--forest);font-size:14.5px;}
+.news-item .nid{font-size:11.5px;color:var(--inkSoft);margin:2px 0 8px;}
+.news-item .nib{font-size:13px;line-height:1.75;color:var(--ink);white-space:pre-wrap;word-break:break-word;}
+.news-item img{width:100%;border-radius:8px;margin-top:10px;display:block;}
+.news-more{text-align:center;padding:10px;font-size:12.5px;color:var(--wood);cursor:pointer;background:var(--bgAlt);}
 .order-item-line{font-size:12.5px;color:var(--ink);padding:6px 0;border-top:1px dashed var(--line);}
 .modified-badge{display:inline-block;background:var(--alert);color:#fff;font-size:10.5px;font-weight:700;border-radius:999px;padding:2px 8px;margin-left:6px;vertical-align:middle;}
 
@@ -172,7 +194,7 @@ select.input{background:var(--bg);}
    설정 — APPS_SCRIPT_URL만 본인 것으로 바꿔주세요
    ========================================================= */
 const CONFIG = {
-  APPS_SCRIPT_URL: "https://script.google.com/macros/s/AKfycbzPMrqotNPgrbf45v658b1OQhtZSDJrfbAYEIukldOzv1J8m8nFKz4ex4pFhaoGGgxnwQ/exec",
+  APPS_SCRIPT_URL: "https://script.google.com/macros/s/AKfycbwnL_DkKIfU09TwD5RiKp9P-H2dyA5SqzL1o5wkAoAUDGATowCGjj9yht1s8OFRtajQuw/exec",
   ADMIN_PIN: "1004",
   FARM_ADDRESS: "경기도 안성시 삼죽면 하냉길 33-58",
   SHIPPING_FEE: 4000,
@@ -244,6 +266,13 @@ let STATE = {
   identify: { name: "", phone: "", error: "" },
   buyer: { name: "", phone: "", referrer: "" },
   buyerForm: { name: "", phone: "", referrer: "", err: false },
+  requestNote: "",         // 새 주문 시 농장주께 요청/문의 (첫 메시지)
+  msgDraft: {},            // {orderId: "작성 중 텍스트"} 주문자 추가 메시지
+  replyDraft: {},          // {orderId: "작성 중 텍스트"} 관리자 답글
+  msgSending: {},          // {orderId: true} 전송 중 표시
+  news: [],                // 농장 소식 [{id,title,body,image,createdAt}]
+  openNewsId: null,        // 대문에서 펼쳐 보는 소식
+  newsForm: { title: "", body: "", image: "" }, // 관리자 소식 작성
   cart: [],
   item: EMPTY_ITEM(),
   editingItemId: null,     // 장바구니 안에서 특정 항목 수정 중
@@ -305,7 +334,7 @@ async function loadAll(silent){
     const data = await apiGet();
     const orders = (data.orders||[]).map(o=>{
       const items=(o.items||[]).map((it,idx)=>({ ...it, itemId: it.itemId || (o.id+"-"+idx) }));
-      return { ...o, items, cancelRequested: o.cancelRequested===true||o.cancelRequested==="TRUE" };
+      return { ...o, items, messages: Array.isArray(o.messages)?o.messages:[], cancelRequested: o.cancelRequested===true||o.cancelRequested==="TRUE" };
     });
     const patch = {
       fruits: data.fruits||[], orders,
@@ -320,6 +349,7 @@ async function loadAll(silent){
       notifyEmail: data.notifyEmail!==undefined?data.notifyEmail:STATE.notifyEmail,
       landingPhotos: [data.landingPhoto1||"", data.landingPhoto2||"", data.landingPhoto3||""],
       availability: (data.availability||[]).map(a=>({ ...a, date: normDate(a.date), start: normTime(a.start), end: normTime(a.end) })),
+      news: (data.news||[]).slice().sort((a,b)=>new Date(b.createdAt||0)-new Date(a.createdAt||0)),
       loaded:true, loadError:"",
     };
     const typing = document.activeElement && /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);
@@ -408,6 +438,37 @@ function renderOrderArea(){
   return renderBuild();
 }
 
+function renderNewsSection(){
+  const news=STATE.news||[];
+  if(!news.length) return "";
+  const latest=news[0];
+  const open=STATE.openNewsId;
+  const dateStr=(iso)=>{ const d=new Date(iso); return isNaN(d)?"":d.toLocaleDateString("ko-KR",{month:"long",day:"numeric"}); };
+  // 접힘: 배너 한 줄
+  if(!open){
+    return `<div class="news-banner" data-action="toggleNews" data-id="latest">
+      <span class="npin">📢</span>
+      <span class="ntxt"><span class="ntitle">${esc(latest.title||"농장 소식")}</span><span class="ndate">${dateStr(latest.createdAt)}${news.length>1?` · 소식 ${news.length}개`:""}</span></span>
+      <span class="nchev">눌러서 보기 ▾</span>
+    </div>`;
+  }
+  // 펼침: "latest"면 최신 1개, "all"이면 전체
+  const shown = open==="all" ? news : [latest];
+  return `<div class="news-banner" data-action="toggleNews" data-id="close">
+      <span class="npin">📢</span>
+      <span class="ntxt"><span class="ntitle">농장 소식</span></span>
+      <span class="nchev">접기 ▴</span>
+    </div>
+    <div class="news-panel">
+      ${shown.map(n=>`<div class="news-item">
+        <div class="nih">${esc(n.title||"농장 소식")}</div>
+        <div class="nid">${dateStr(n.createdAt)}</div>
+        ${n.body?`<div class="nib">${esc(n.body)}</div>`:""}
+        ${n.image?`<img src="${esc(n.image)}" alt="농장 소식 사진" loading="lazy"/>`:""}
+      </div>`).join("")}
+      ${(open!=="all"&&news.length>1)?`<div class="news-more" data-action="showAllNews">지난 소식 더보기 (${news.length-1}개) ▾</div>`:""}
+    </div>`;
+}
 function renderLanding(){
   const addr = STATE.farmAddress || CONFIG.FARM_ADDRESS;
   const onSale = STATE.fruits.filter(isOnSale);
@@ -417,6 +478,8 @@ function renderLanding(){
       <button class="landing-btn" data-action="startNew"><span class="emoji">🧺</span><span><span class="title">새 주문</span><br/><span class="desc">새로 주문하시는 분은 여기를 눌러주세요</span></span></button>
       <button class="landing-btn" data-action="startEdit"><span class="emoji">✏️</span><span><span class="title">주문 변경</span><br/><span class="desc">이미 넣은 주문을 확인하거나 수정해요</span></span></button>
     </div>
+
+    ${renderNewsSection()}
 
     ${STATE.greeting?`
       <div class="crate" style="max-width:480px;margin:24px auto 0;">
@@ -475,6 +538,21 @@ function renderIdentify(){
     </div></div>`;
 }
 
+function needsReply(msgs){
+  const list=Array.isArray(msgs)?msgs:[];
+  if(!list.length) return false;
+  return list[list.length-1].from==="buyer";
+}
+function renderThread(msgs){
+  const list=Array.isArray(msgs)?msgs:[];
+  if(!list.length) return `<div class="msg-empty">아직 주고받은 메시지가 없어요.</div>`;
+  return `<div class="msg-thread">${list.map(m=>{
+    const mine=m.from==="buyer";
+    const who=mine?"나(주문자)":"🧑‍🌾 농장주";
+    const when=m.at?new Date(m.at).toLocaleString("ko-KR",{month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit"}):"";
+    return `<div class="msg-bubble ${mine?"msg-buyer":"msg-farmer"}"><div class="who">${who}${when?" · "+when:""}</div>${esc(m.text)}</div>`;
+  }).join("")}</div>`;
+}
 function renderEditList(){
   const list=STATE.myOrders;
   return `<div style="max-width:480px;margin:0 auto;">
@@ -496,6 +574,13 @@ function renderEditList(){
               <button class="btn-ghost" style="flex:1;" data-action="editOrder" data-id="${esc(o.id)}">주문 수정</button>
               <button class="btn-ghost danger" style="flex:1;" data-action="requestCancel" data-id="${esc(o.id)}">주문 취소</button>
             </div>`}
+        <div class="divider" style="margin:12px 0 6px;"></div>
+        <div class="section-label" style="margin-bottom:4px;">💬 농장주와 주고받기</div>
+        ${renderThread(o.messages)}
+        <div class="msg-input-row">
+          <textarea class="input" data-bind="msgDraft" data-id="${esc(o.id)}" rows="1" placeholder="농장주께 메시지 남기기…">${esc(STATE.msgDraft[o.id]||"")}</textarea>
+          <button class="btn-ghost" style="white-space:nowrap;" data-action="sendBuyerMsg" data-id="${esc(o.id)}" ${STATE.msgSending[o.id]?"disabled":""}>${STATE.msgSending[o.id]?"…":"보내기"}</button>
+        </div>
       </div>`;
     }).join("")}
     <button class="btn-ghost" style="width:100%;margin-top:6px;" data-action="backToLanding">← 처음으로</button>
@@ -618,6 +703,7 @@ function renderBuild(){
         <div class="field"><div class="field-head"><label class="field-label">이름 <span class="req">*</span></label></div><input class="input" data-bind="buyerName" placeholder="주문자 성함" value="${esc(STATE.buyerForm.name)}" />${STATE.buyerForm.err&&!STATE.buyerForm.name.trim()?`<div class="err">이름을 입력해주세요.</div>`:""}</div>
         <div class="field"><div class="field-head"><label class="field-label">연락처 <span class="req">*</span></label></div><input class="input" type="tel" inputmode="tel" data-bind="buyerPhone" placeholder="010-0000-0000" value="${esc(STATE.buyerForm.phone)}" />${STATE.buyerForm.err&&!digits(STATE.buyerForm.phone)?`<div class="err">연락처를 입력해주세요.</div>`:""}</div>
         <div class="field"><div class="field-head"><label class="field-label">소개해주신 분</label><span class="hint">선택 · 안 적으셔도 돼요</span></div><input class="input" data-bind="buyerReferrer" placeholder="예) 김철수님" value="${esc(STATE.buyerForm.referrer)}" /></div>
+        <div class="field"><div class="field-head"><label class="field-label">농장주께 요청/문의</label><span class="hint">선택 · 나중에 답을 받을 수 있어요</span></div><textarea class="input" data-bind="requestNote" rows="2" placeholder="예) 23일 오후에 찾으러 갈게요 / 무른 건 빼주세요" style="resize:vertical;">${esc(STATE.requestNote)}</textarea></div>
       `:""}
 
       <button class="btn-primary" data-action="submitOrder" ${STATE.submitting?"disabled":""}>${STATE.submitting?`<span class="spinner"></span> ${STATE.editingOrderId?"저장 중…":"접수 중…"}`:`${STATE.editingOrderId?"수정 내용 저장":"주문 완료하기"} (${won(cartTotal())})`}</button>
@@ -675,12 +761,14 @@ function renderAdminArea(){
     <button class="mini-tab ${STATE.adminTab==="work"?"active":""}" data-action="setAdminTab" data-v="work">작업 목록</button>
     <button class="mini-tab ${STATE.adminTab==="fruits"?"active":""}" data-action="setAdminTab" data-v="fruits">과일 관리</button>
     <button class="mini-tab ${STATE.adminTab==="avail"?"active":""}" data-action="setAdminTab" data-v="avail">상주 일정</button>
+    <button class="mini-tab ${STATE.adminTab==="news"?"active":""}" data-action="setAdminTab" data-v="news">농장 소식</button>
     <button class="mini-tab ${STATE.adminTab==="account"?"active":""}" data-action="setAdminTab" data-v="account">가게 설정</button>
   </div>
   ${STATE.adminTab==="orders"?renderOrderManager():""}
   ${STATE.adminTab==="work"?renderWorkList():""}
   ${STATE.adminTab==="fruits"?renderFruitManager():""}
   ${STATE.adminTab==="avail"?renderAvailManager():""}
+  ${STATE.adminTab==="news"?renderNewsManager():""}
   ${STATE.adminTab==="account"?renderAccountManager():""}`;
 }
 
@@ -745,6 +833,36 @@ function renderAvailManager(){
   </div>
   ${sorted.length===0?`<div class="empty-note">등록된 상주 일정이 없어요. 추가하면 방문 수령이 가능해져요.</div>`:""}
   ${sorted.map(a=>`<div class="avail-row"><div class="d">${esc(a.date)}</div><div style="color:var(--inkSoft);">${esc(a.start)} ~ ${esc(a.end)}</div><button class="btn-ghost danger" style="margin-left:auto;padding:6px 10px;min-height:34px;font-size:12px;" data-action="deleteAvail" data-id="${esc(a.id)}">삭제</button></div>`).join("")}`;
+}
+
+function renderNewsManager(){
+  const nf=STATE.newsForm||{title:"",body:"",image:""};
+  const list=STATE.news||[];
+  const dateStr=(iso)=>{ const d=new Date(iso); return isNaN(d)?"":d.toLocaleDateString("ko-KR",{year:"numeric",month:"long",day:"numeric"}); };
+  return `<div class="admin-card">
+    <div class="section-label">농장 소식 올리기</div>
+    <div style="font-size:12.5px;color:var(--inkSoft);margin-bottom:12px;">여기 올린 소식은 첫 화면에 최신 것부터 배너로 보여요(주문자가 눌러서 펼쳐 봄). 사진은 자동 압축돼요.</div>
+    <div class="field"><div class="field-head"><label class="field-label">제목</label></div><input class="input" data-bind="newsTitle" value="${esc(nf.title)}" placeholder="예) 황도 수확 시작했어요!" /></div>
+    <div class="field"><div class="field-head"><label class="field-label">내용</label></div><textarea class="input" data-bind="newsBody" rows="4" placeholder="현재 농장 상황, 출하 일정, 날씨 소식 등을 자유롭게 적어주세요." style="resize:vertical;">${esc(nf.body)}</textarea></div>
+    <div class="field"><div class="field-head"><label class="field-label">사진</label><span class="hint">선택</span></div>
+      <div style="display:flex;align-items:center;gap:10px;">
+        <div class="fruit-thumb-admin" style="width:76px;height:76px;">${nf.image?`<img src="${esc(nf.image)}" alt=""/>`:"🖼"}</div>
+        <label class="btn-ghost" style="margin:0;">${nf.image?"사진 변경":"📷 사진 선택"}<input type="file" accept="image/*" data-imgfor="news" style="display:none;" /></label>
+        ${nf.image?`<button class="btn-ghost danger" style="padding:6px 10px;min-height:34px;font-size:12px;" data-action="clearNewsImage">삭제</button>`:""}
+      </div>
+    </div>
+    <button class="btn-primary" data-action="addNews" ${STATE.submitting?"disabled":""}>＋ 소식 올리기</button>
+  </div>
+  ${list.length===0?`<div class="empty-note">아직 올린 소식이 없어요.</div>`:""}
+  ${list.map(n=>`<div class="admin-card" style="margin-top:10px;">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">
+      <div style="min-width:0;"><div style="font-weight:700;color:var(--forest);font-size:14.5px;">${esc(n.title||"농장 소식")}</div>
+        <div style="font-size:11.5px;color:var(--inkSoft);margin-top:2px;">${dateStr(n.createdAt)}</div></div>
+      <button class="btn-ghost danger" style="padding:6px 10px;min-height:34px;font-size:12px;white-space:nowrap;" data-action="deleteNews" data-id="${esc(n.id)}">삭제</button>
+    </div>
+    ${n.body?`<div style="font-size:13px;line-height:1.7;color:var(--ink);white-space:pre-wrap;margin-top:8px;">${esc(n.body)}</div>`:""}
+    ${n.image?`<img src="${esc(n.image)}" alt="" style="width:100%;max-width:280px;border-radius:8px;margin-top:10px;display:block;" loading="lazy"/>`:""}
+  </div>`).join("")}`;
 }
 
 function renderAccountManager(){
@@ -951,6 +1069,13 @@ function renderOrderManager(){
           <br/><span style="color:var(--inkSoft);">${extra}${gift}</span>${changeLine}</div>`;
       }).join("")}
       <div class="meta">${new Date(o.createdAt).toLocaleString("ko-KR")}${o.modifiedAt?` · <span style="color:var(--alert);">수정: ${new Date(o.modifiedAt).toLocaleString("ko-KR")}</span>`:""}</div>
+      <div class="divider" style="margin:12px 0 6px;"></div>
+      <div class="section-label" style="margin-bottom:4px;">💬 주문자와 주고받기${needsReply(o.messages)?` <span class="modified-badge">답변 필요</span>`:""}</div>
+      ${renderThread(o.messages)}
+      <div class="msg-input-row">
+        <textarea class="input" data-bind="replyDraft" data-id="${esc(o.id)}" rows="1" placeholder="답글 달기 (저장 시 주문자에게 문자 알림)…">${esc(STATE.replyDraft[o.id]||"")}</textarea>
+        <button class="btn-forest" style="white-space:nowrap;width:auto;padding:8px 12px;min-height:36px;" data-action="sendFarmerReply" data-id="${esc(o.id)}" ${STATE.msgSending[o.id]?"disabled":""}>${STATE.msgSending[o.id]?"…":"답글+문자"}</button>
+      </div>
       <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;align-items:center;">
         ${o.smsSent
           ? `<span style="font-size:12px;font-weight:700;color:var(--forest);background:#E4EDE3;border-radius:999px;padding:7px 12px;">✓ 문자 전송 완료</span>
@@ -1067,6 +1192,9 @@ function onBind(e){
   if(key==="buyerName"){ STATE.buyerForm.name=val; return; }
   if(key==="buyerPhone"){ STATE.buyerForm.phone=val; return; }
   if(key==="buyerReferrer"){ STATE.buyerForm.referrer=val; return; }
+  if(key==="requestNote"){ STATE.requestNote=val; return; }
+  if(key==="msgDraft"){ const oid=e.target.getAttribute("data-id"); STATE.msgDraft[oid]=val; return; }
+  if(key==="replyDraft"){ const oid=e.target.getAttribute("data-id"); STATE.replyDraft[oid]=val; return; }
   if(key==="businessName"){ STATE.businessName=val; return; }
   if(key==="greeting"){ STATE.greeting=val; return; }
   if(key==="farmPhone"){ STATE.farmPhone=val; return; }
@@ -1082,6 +1210,8 @@ function onBind(e){
   if(key==="availDate") STATE.availForm.date=val;
   if(key==="availStart") STATE.availForm.start=val;
   if(key==="availEnd") STATE.availForm.end=val;
+  if(key==="newsTitle"){ STATE.newsForm.title=val; return; }
+  if(key==="newsBody"){ STATE.newsForm.body=val; return; }
   if(key==="editFruitName") STATE.editFruit.name=val;
   if(key==="editFruitPrice") STATE.editFruit.price=val;
   if(key==="editFruitStock") STATE.editFruit.stock=val===""?null:val;
@@ -1111,6 +1241,8 @@ async function onAction(e){
 
   if(action==="setView"){ setState({view:v}); loadAll(true); return; }
   if(action==="startNew"){ setState({buyer:{name:"",phone:"",referrer:""},buyerForm:{name:"",phone:"",referrer:"",err:false},cart:[],item:EMPTY_ITEM(),editingItemId:null,editingOrderId:null,editingCreatedAt:null,orderStep:"build"}); return; }
+  if(action==="toggleNews"){ const id=el.getAttribute("data-id"); setState({openNewsId: id==="close"?null:"latest"}); return; }
+  if(action==="showAllNews"){ setState({openNewsId:"all"}); return; }
   if(action==="startEdit"){ setState({identifyMode:"edit",identify:{name:"",phone:"",error:""},orderStep:"identify"}); return; }
   if(action==="backToLanding"){ setState({orderStep:"landing",cart:[],item:EMPTY_ITEM(),editingItemId:null,editingOrderId:null,editingCreatedAt:null,myOrders:[],buyer:{name:"",phone:""},buyerForm:{name:"",phone:"",err:false},showDoneNotice:false}); return; }
   if(action==="identifyNext"){ identifyNext(); return; }
@@ -1150,11 +1282,16 @@ async function onAction(e){
   if(action==="saveAccount"){ await saveAccount(); return; }
   if(action==="addAvail"){ await addAvail(); return; }
   if(action==="deleteAvail"){ await deleteAvail(id); return; }
+  if(action==="addNews"){ await addNews(); return; }
+  if(action==="deleteNews"){ await deleteNews(id); return; }
+  if(action==="clearNewsImage"){ STATE.newsForm.image=""; render(); return; }
   if(action==="refreshOrders"){ await loadAll(); return; }
   if(action==="deleteOrder"){ await deleteOrder(id); return; }
   if(action==="confirmOrder"){ await confirmOrder(id); return; }
   if(action==="smsOrder"){ smsOrder(id); return; }
   if(action==="resendSms"){ smsOrder(id, true); return; }
+  if(action==="sendBuyerMsg"){ await sendBuyerMsg(id); return; }
+  if(action==="sendFarmerReply"){ await sendFarmerReply(id); return; }
 }
 
 function checkPin(){
@@ -1185,6 +1322,13 @@ async function onImagePicked(e){
       render();
       const key="landingPhoto"+(idx+1);
       await apiPost({action:"setSettings",[key]:dataUrl});
+    }catch(err){ setState({saveError:"사진 처리에 실패했어요. 다른 사진으로 시도해주세요."}); }
+    return;
+  }
+  if(target==="news"){
+    try{
+      const dataUrl=await compressImage(file,700,0.6); // 소식 사진은 조금 크게 허용하되 압축
+      STATE.newsForm.image=dataUrl; render();
     }catch(err){ setState({saveError:"사진 처리에 실패했어요. 다른 사진으로 시도해주세요."}); }
     return;
   }
@@ -1295,12 +1439,20 @@ async function submitOrder(){
       isGift:ci.isGift, receiverName:ci.receiverName, receiverPhone:ci.receiverPhone, giftArrivalDate:ci.giftArrivalDate,
       delivered:false, prepared:false };
   });
-  const order={ id:editing?STATE.editingOrderId:uid(), name:STATE.buyer.name, phone:STATE.buyer.phone, referrer:(editing?(STATE.buyer.referrer||""):(STATE.buyer.referrer||"")), items,
+  let messages=[];
+  if(editing){
+    const existing=STATE.orders.find(x=>x.id===STATE.editingOrderId);
+    messages=(existing&&Array.isArray(existing.messages))?existing.messages:[];
+  } else {
+    const note=(STATE.requestNote||"").trim();
+    if(note) messages=[{ id:uid(), from:"buyer", text:note, at:new Date().toISOString() }];
+  }
+  const order={ id:editing?STATE.editingOrderId:uid(), name:STATE.buyer.name, phone:STATE.buyer.phone, referrer:(STATE.buyer.referrer||""), messages, items,
     createdAt:editing?STATE.editingCreatedAt:new Date().toISOString(), modified:editing, modifiedAt:editing?new Date().toISOString():"" };
   try{
     await apiPost({action:editing?"updateOrder":"addOrder", order});
     STATE._doneTotal=cartTotal();
-    setState({submitting:false,orderStep:"done",doneMode:editing?"edit":"new",cart:[],item:EMPTY_ITEM(),editingOrderId:null,editingCreatedAt:null,showDoneNotice:true});
+    setState({submitting:false,orderStep:"done",doneMode:editing?"edit":"new",cart:[],item:EMPTY_ITEM(),editingOrderId:null,editingCreatedAt:null,requestNote:"",showDoneNotice:true});
     loadAll(true);
   }catch(e){ setState({submitting:false,saveError:"주문 저장에 실패했어요. 잠시 후 다시 시도해주세요."}); }
 }
@@ -1351,6 +1503,25 @@ async function addAvail(){
 async function deleteAvail(id){
   try{ await apiPost({action:"deleteAvail",id}); STATE.availability=STATE.availability.filter(a=>a.id!==id); render(); }
   catch(e){ setState({saveError:"삭제에 실패했어요."}); }
+}
+async function addNews(){
+  const nf=STATE.newsForm||{title:"",body:"",image:""};
+  if(!nf.title.trim() && !nf.body.trim()){ setState({saveError:"제목이나 내용을 입력해주세요."}); return; }
+  const entry={id:uid(),title:nf.title.trim(),body:nf.body.trim(),image:nf.image||"",createdAt:new Date().toISOString()};
+  STATE.submitting=true; render();
+  try{
+    await apiPost({action:"addNews",...entry});
+    STATE.news=[entry,...(STATE.news||[])];
+    STATE.newsForm={title:"",body:"",image:""};
+    STATE.submitting=false; render();
+  }catch(e){ STATE.submitting=false; setState({saveError:"소식 저장에 실패했어요. 다시 시도해주세요."}); }
+}
+async function deleteNews(id){
+  if(!confirm("이 소식을 삭제할까요?")) return;
+  const backup=STATE.news;
+  STATE.news=STATE.news.filter(n=>n.id!==id); render();
+  try{ await apiPost({action:"deleteNews",id}); }
+  catch(e){ STATE.news=backup; setState({saveError:"삭제에 실패했어요."}); }
 }
 async function deleteOrder(id){
   if(!confirm("DB에서 자료가 삭제됩니다. 정말 취소하시겠습니까?")) return;
@@ -1505,6 +1676,39 @@ function smsOrder(id, isResend){
     apiPost({action:"markSmsSent", id}).catch(()=>{});
   }
   window.location.href = href;
+}
+
+/* ---- 메시지(주문자↔농장주) ---- */
+async function sendBuyerMsg(id){
+  const text=(STATE.msgDraft[id]||"").trim();
+  if(!text) return;
+  const o=STATE.myOrders.find(x=>x.id===id)||STATE.orders.find(x=>x.id===id); if(!o) return;
+  const msg={ id:uid(), from:"buyer", text, at:new Date().toISOString() };
+  const newMsgs=[...(o.messages||[]), msg];
+  // 낙관적 업데이트 (myOrders/orders 양쪽 반영)
+  [STATE.myOrders, STATE.orders].forEach(arr=>{ const t=arr.find(x=>x.id===id); if(t) t.messages=newMsgs; });
+  STATE.msgDraft[id]=""; STATE.msgSending[id]=true; render();
+  try{
+    await apiPost({action:"appendMessage", id, messages:newMsgs});
+    STATE.msgSending[id]=false; render();
+  }catch(e){ STATE.msgSending[id]=false; setState({saveError:"메시지 전송에 실패했어요. 다시 시도해주세요."}); }
+}
+async function sendFarmerReply(id){
+  const text=(STATE.replyDraft[id]||"").trim();
+  if(!text) return;
+  const o=STATE.orders.find(x=>x.id===id); if(!o) return;
+  const msg={ id:uid(), from:"farmer", text, at:new Date().toISOString() };
+  const newMsgs=[...(o.messages||[]), msg];
+  o.messages=newMsgs; STATE.replyDraft[id]=""; STATE.msgSending[id]=true; render();
+  try{
+    await apiPost({action:"appendMessage", id, messages:newMsgs});
+    STATE.msgSending[id]=false; render();
+    // 답글 알림 문자: 농장주 폰 문자앱을 열어 주문자에게 발송
+    const shop = STATE.businessName || "에덴농원";
+    const body = `[${shop}] 남겨주신 문의에 농장주 답글이 달렸어요.\n\n"${text}"\n\n주문 조회 화면에서 확인하실 수 있어요.`;
+    const href = `sms:${digits(o.phone)}?body=${encodeURIComponent(body)}`;
+    window.location.href = href;
+  }catch(e){ STATE.msgSending[id]=false; setState({saveError:"답글 저장에 실패했어요. 다시 시도해주세요."}); }
 }
 </script>
 </body>
