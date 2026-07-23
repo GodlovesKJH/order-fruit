@@ -171,6 +171,12 @@ select.input{background:var(--bg);}
 .news-item .nib{font-size:13px;line-height:1.75;color:var(--ink);white-space:pre-wrap;word-break:break-word;}
 .news-item img{width:100%;border-radius:8px;margin-top:10px;display:block;}
 .news-more{text-align:center;padding:10px;font-size:12.5px;color:var(--wood);cursor:pointer;background:var(--bgAlt);}
+.news-new{display:inline-block;font-size:9.5px;font-weight:700;color:#fff;background:var(--persimmon);border-radius:4px;padding:1px 5px;vertical-align:middle;letter-spacing:.3px;}
+.news-head-row{display:flex;align-items:center;gap:8px;padding:11px 16px;border-bottom:1px solid var(--line);cursor:pointer;}
+.news-head-row:last-child{border-bottom:none;}
+.news-head-row .nhr-t{flex:1;min-width:0;font-size:13.5px;font-weight:600;color:var(--forest);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.news-head-row .nhr-d{font-size:11px;color:var(--inkSoft);white-space:nowrap;}
+.news-hidden-badge{display:inline-block;font-size:9.5px;font-weight:700;color:var(--inkSoft);background:var(--bgAlt);border:1px solid var(--line);border-radius:4px;padding:1px 5px;vertical-align:middle;}
 .order-item-line{font-size:12.5px;color:var(--ink);padding:6px 0;border-top:1px dashed var(--line);}
 .modified-badge{display:inline-block;background:var(--alert);color:#fff;font-size:10.5px;font-weight:700;border-radius:999px;padding:2px 8px;margin-left:6px;vertical-align:middle;}
 
@@ -194,7 +200,7 @@ select.input{background:var(--bg);}
    설정 — APPS_SCRIPT_URL만 본인 것으로 바꿔주세요
    ========================================================= */
 const CONFIG = {
-  APPS_SCRIPT_URL: "https://script.google.com/macros/s/AKfycbwnL_DkKIfU09TwD5RiKp9P-H2dyA5SqzL1o5wkAoAUDGATowCGjj9yht1s8OFRtajQuw/exec",
+  APPS_SCRIPT_URL: "https://script.google.com/macros/s/AKfycbyIIilRasl1dfznGSmu-_9tOFqh6v0wDkT3CbePD7Z5UkXwI_3ixy1HJluxBDbBoBNG5A/exec",
   ADMIN_PIN: "1004",
   FARM_ADDRESS: "경기도 안성시 삼죽면 하냉길 33-58",
   SHIPPING_FEE: 4000,
@@ -349,7 +355,7 @@ async function loadAll(silent){
       notifyEmail: data.notifyEmail!==undefined?data.notifyEmail:STATE.notifyEmail,
       landingPhotos: [data.landingPhoto1||"", data.landingPhoto2||"", data.landingPhoto3||""],
       availability: (data.availability||[]).map(a=>({ ...a, date: normDate(a.date), start: normTime(a.start), end: normTime(a.end) })),
-      news: (data.news||[]).slice().sort((a,b)=>new Date(b.createdAt||0)-new Date(a.createdAt||0)),
+      news: (data.news||[]).map(n=>({ ...n, active: n.active!==false })).sort((a,b)=>new Date(b.createdAt||0)-new Date(a.createdAt||0)),
       loaded:true, loadError:"",
     };
     const typing = document.activeElement && /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);
@@ -439,34 +445,38 @@ function renderOrderArea(){
 }
 
 function renderNewsSection(){
-  const news=STATE.news||[];
+  // 주문자 화면에는 "공개(활성)" 상태인 소식만 보임
+  const news=(STATE.news||[]).filter(n=>n.active!==false);
   if(!news.length) return "";
-  const latest=news[0];
   const open=STATE.openNewsId;
   const dateStr=(iso)=>{ const d=new Date(iso); return isNaN(d)?"":d.toLocaleDateString("ko-KR",{month:"long",day:"numeric"}); };
-  // 접힘: 배너 한 줄
+  // 접힘: 올라온 소식 제목을 모두 목록으로 표시
   if(!open){
-    return `<div class="news-banner" data-action="toggleNews" data-id="latest">
+    return `<div class="news-banner" data-action="toggleNews" data-id="open">
       <span class="npin">📢</span>
-      <span class="ntxt"><span class="ntitle">${esc(latest.title||"농장 소식")}</span><span class="ndate">${dateStr(latest.createdAt)}${news.length>1?` · 소식 ${news.length}개`:""}</span></span>
+      <span class="ntxt"><span class="ntitle">농장 소식</span><span class="ndate">${news.length}개</span></span>
       <span class="nchev">눌러서 보기 ▾</span>
+    </div>
+    <div class="news-panel">
+      ${news.map((n,i)=>`<div class="news-head-row" data-action="toggleNews" data-id="open">
+        <span class="nhr-t">${i===0?`<span class="news-new">NEW</span> `:""}${esc(n.title||"농장 소식")}</span>
+        <span class="nhr-d">${dateStr(n.createdAt)}</span>
+      </div>`).join("")}
     </div>`;
   }
-  // 펼침: "latest"면 최신 1개, "all"이면 전체
-  const shown = open==="all" ? news : [latest];
+  // 펼침: 올라온 소식 전체를 최신순으로 모두 표시 (사진은 lazy 로딩)
   return `<div class="news-banner" data-action="toggleNews" data-id="close">
       <span class="npin">📢</span>
-      <span class="ntxt"><span class="ntitle">농장 소식</span></span>
+      <span class="ntxt"><span class="ntitle">농장 소식</span><span class="ndate">${news.length}개</span></span>
       <span class="nchev">접기 ▴</span>
     </div>
     <div class="news-panel">
-      ${shown.map(n=>`<div class="news-item">
-        <div class="nih">${esc(n.title||"농장 소식")}</div>
+      ${news.map((n,i)=>`<div class="news-item">
+        <div class="nih">${i===0?`<span class="news-new">NEW</span> `:""}${esc(n.title||"농장 소식")}</div>
         <div class="nid">${dateStr(n.createdAt)}</div>
         ${n.body?`<div class="nib">${esc(n.body)}</div>`:""}
         ${n.image?`<img src="${esc(n.image)}" alt="농장 소식 사진" loading="lazy"/>`:""}
       </div>`).join("")}
-      ${(open!=="all"&&news.length>1)?`<div class="news-more" data-action="showAllNews">지난 소식 더보기 (${news.length-1}개) ▾</div>`:""}
     </div>`;
 }
 function renderLanding(){
@@ -851,18 +861,23 @@ function renderNewsManager(){
         ${nf.image?`<button class="btn-ghost danger" style="padding:6px 10px;min-height:34px;font-size:12px;" data-action="clearNewsImage">삭제</button>`:""}
       </div>
     </div>
-    <button class="btn-primary" data-action="addNews" ${STATE.submitting?"disabled":""}>＋ 소식 올리기</button>
+    <div style="display:flex;gap:8px;">
+      <button class="btn-primary" style="flex:1;" data-action="addNews" data-v="on" ${STATE.submitting?"disabled":""}>📢 바로 공개</button>
+      <button class="btn-ghost" style="flex:1;" data-action="addNews" data-v="off" ${STATE.submitting?"disabled":""}>🙈 비공개로 저장</button>
+    </div>
+    <div style="font-size:11.5px;color:var(--inkSoft);margin-top:6px;">비공개로 저장하면 주문자 화면에 안 보여요. 나중에 아래 목록에서 "공개하기"를 누르면 보이게 돼요.</div>
   </div>
   ${list.length===0?`<div class="empty-note">아직 올린 소식이 없어요.</div>`:""}
-  ${list.map(n=>`<div class="admin-card" style="margin-top:10px;">
+  ${list.map(n=>{ const on=n.active!==false; return `<div class="admin-card" style="margin-top:10px;${on?"":"opacity:.62;"}">
     <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">
-      <div style="min-width:0;"><div style="font-weight:700;color:var(--forest);font-size:14.5px;">${esc(n.title||"농장 소식")}</div>
+      <div style="min-width:0;"><div style="font-weight:700;color:var(--forest);font-size:14.5px;">${on?"":`<span class="news-hidden-badge">비공개</span> `}${esc(n.title||"농장 소식")}</div>
         <div style="font-size:11.5px;color:var(--inkSoft);margin-top:2px;">${dateStr(n.createdAt)}</div></div>
       <button class="btn-ghost danger" style="padding:6px 10px;min-height:34px;font-size:12px;white-space:nowrap;" data-action="deleteNews" data-id="${esc(n.id)}">삭제</button>
     </div>
     ${n.body?`<div style="font-size:13px;line-height:1.7;color:var(--ink);white-space:pre-wrap;margin-top:8px;">${esc(n.body)}</div>`:""}
     ${n.image?`<img src="${esc(n.image)}" alt="" style="width:100%;max-width:280px;border-radius:8px;margin-top:10px;display:block;" loading="lazy"/>`:""}
-  </div>`).join("")}`;
+    <button class="${on?"btn-ghost":"btn-forest"}" style="margin-top:10px;width:100%;" data-action="toggleNewsActive" data-id="${esc(n.id)}">${on?"🙈 비공개로 숨기기":"📢 공개하기"}</button>
+  </div>`;}).join("")}`;
 }
 
 function renderAccountManager(){
@@ -1241,8 +1256,7 @@ async function onAction(e){
 
   if(action==="setView"){ setState({view:v}); loadAll(true); return; }
   if(action==="startNew"){ setState({buyer:{name:"",phone:"",referrer:""},buyerForm:{name:"",phone:"",referrer:"",err:false},cart:[],item:EMPTY_ITEM(),editingItemId:null,editingOrderId:null,editingCreatedAt:null,orderStep:"build"}); return; }
-  if(action==="toggleNews"){ const id=el.getAttribute("data-id"); setState({openNewsId: id==="close"?null:"latest"}); return; }
-  if(action==="showAllNews"){ setState({openNewsId:"all"}); return; }
+  if(action==="toggleNews"){ const id=el.getAttribute("data-id"); setState({openNewsId: id==="close"?null:"open"}); return; }
   if(action==="startEdit"){ setState({identifyMode:"edit",identify:{name:"",phone:"",error:""},orderStep:"identify"}); return; }
   if(action==="backToLanding"){ setState({orderStep:"landing",cart:[],item:EMPTY_ITEM(),editingItemId:null,editingOrderId:null,editingCreatedAt:null,myOrders:[],buyer:{name:"",phone:""},buyerForm:{name:"",phone:"",err:false},showDoneNotice:false}); return; }
   if(action==="identifyNext"){ identifyNext(); return; }
@@ -1282,7 +1296,8 @@ async function onAction(e){
   if(action==="saveAccount"){ await saveAccount(); return; }
   if(action==="addAvail"){ await addAvail(); return; }
   if(action==="deleteAvail"){ await deleteAvail(id); return; }
-  if(action==="addNews"){ await addNews(); return; }
+  if(action==="addNews"){ await addNews(el.getAttribute("data-v")!=="off"); return; }
+  if(action==="toggleNewsActive"){ await toggleNewsActive(id); return; }
   if(action==="deleteNews"){ await deleteNews(id); return; }
   if(action==="clearNewsImage"){ STATE.newsForm.image=""; render(); return; }
   if(action==="refreshOrders"){ await loadAll(); return; }
@@ -1504,10 +1519,10 @@ async function deleteAvail(id){
   try{ await apiPost({action:"deleteAvail",id}); STATE.availability=STATE.availability.filter(a=>a.id!==id); render(); }
   catch(e){ setState({saveError:"삭제에 실패했어요."}); }
 }
-async function addNews(){
+async function addNews(active){
   const nf=STATE.newsForm||{title:"",body:"",image:""};
   if(!nf.title.trim() && !nf.body.trim()){ setState({saveError:"제목이나 내용을 입력해주세요."}); return; }
-  const entry={id:uid(),title:nf.title.trim(),body:nf.body.trim(),image:nf.image||"",createdAt:new Date().toISOString()};
+  const entry={id:uid(),title:nf.title.trim(),body:nf.body.trim(),image:nf.image||"",active:active!==false,createdAt:new Date().toISOString()};
   STATE.submitting=true; render();
   try{
     await apiPost({action:"addNews",...entry});
@@ -1515,6 +1530,14 @@ async function addNews(){
     STATE.newsForm={title:"",body:"",image:""};
     STATE.submitting=false; render();
   }catch(e){ STATE.submitting=false; setState({saveError:"소식 저장에 실패했어요. 다시 시도해주세요."}); }
+}
+async function toggleNewsActive(id){
+  const n=(STATE.news||[]).find(x=>x.id===id); if(!n) return;
+  const next=!(n.active!==false);
+  const prev=n.active;
+  n.active=next; render(); // 낙관적 업데이트
+  try{ await apiPost({action:"updateNews",id,patch:{active:next}}); }
+  catch(e){ n.active=prev; setState({saveError:"변경에 실패했어요. 다시 시도해주세요."}); }
 }
 async function deleteNews(id){
   if(!confirm("이 소식을 삭제할까요?")) return;
