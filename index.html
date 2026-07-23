@@ -107,6 +107,11 @@ select.input{background:var(--bg);}
 .two-col>div{flex:1 1 130px;}
 
 .cart-item{background:#fff;border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-bottom:10px;}
+.cart-qty-row{display:flex;align-items:center;gap:10px;margin-top:10px;}
+.cart-qty-label{font-size:12.5px;color:var(--inkSoft);font-weight:600;}
+.stepper-sm button{width:38px;height:38px;font-size:17px;}
+.stepper-sm .stepper-val{min-width:46px;text-align:center;font-size:15px;font-weight:700;color:var(--ink);background:#fff;padding:9px 0;}
+.stepper button:disabled{opacity:.35;}
 .cart-item-top{display:flex;justify-content:space-between;gap:8px;align-items:flex-start;}
 .cart-item .badge{display:inline-block;font-size:11px;font-weight:700;border-radius:999px;padding:2px 8px;background:var(--bgAlt);color:var(--forest);margin-top:4px;}
 
@@ -322,13 +327,21 @@ function setStateSilent(patch){ STATE = { ...STATE, ...patch }; }
 function setItem(patch){ STATE.item = { ...STATE.item, ...patch }; render(); }
 
 /* ---------------- API ---------------- */
+// 응답이 영영 안 와서 화면이 멈추는 것을 막기 위해 시간 제한을 둠
+async function fetchWithTimeout(url, opts, ms){
+  const ctrl = (typeof AbortController!=="undefined") ? new AbortController() : null;
+  const timer = setTimeout(()=>{ try{ ctrl && ctrl.abort(); }catch(e){} }, ms||20000);
+  try{
+    return await fetch(url, Object.assign({}, opts||{}, ctrl?{signal:ctrl.signal}:{}));
+  } finally { clearTimeout(timer); }
+}
 async function apiGet(){
-  const res = await fetch(CONFIG.APPS_SCRIPT_URL + "?action=getAll&t=" + Date.now());
+  const res = await fetchWithTimeout(CONFIG.APPS_SCRIPT_URL + "?action=getAll&t=" + Date.now(), {}, 20000);
   if(!res.ok) throw new Error("network");
   return res.json();
 }
 async function apiPost(body){
-  const res = await fetch(CONFIG.APPS_SCRIPT_URL, { method:"POST", body: JSON.stringify(body) });
+  const res = await fetchWithTimeout(CONFIG.APPS_SCRIPT_URL, { method:"POST", body: JSON.stringify(body) }, 30000);
   if(!res.ok) throw new Error("network");
   return res.json();
 }
@@ -361,10 +374,17 @@ async function loadAll(silent){
     const typing = document.activeElement && /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);
     if(silent && typing) setStateSilent(patch); else setState(patch);
   }catch(e){
-    if(!silent) setState({ loaded:true, loadError:"데이터를 불러오지 못했어요. 잠시 후 다시 시도해주세요." });
+    const aborted = e && (e.name==="AbortError");
+    // 첫 로딩(또는 아직 데이터를 못 받은 상태)에서는 반드시 안내를 띄움
+    if(!silent || !STATE.loaded){
+      setState({ loaded:true, loadError: aborted
+        ? "서버 응답이 너무 느려요. 인터넷 상태를 확인하고 새로고침해주세요."
+        : "데이터를 불러오지 못했어요. 잠시 후 다시 시도해주세요." });
+    }
   }
 }
 
+render();   // 데이터를 기다리지 않고 화면부터 먼저 그림 (응답이 늦어도 백지가 안 되도록)
 loadAll();
 setInterval(()=>{ if(STATE.view==="order") loadAll(true); }, CONFIG.POLL_MS);
 document.addEventListener("visibilitychange", ()=>{ if(document.visibilityState==="visible" && STATE.view==="order") loadAll(true); });
@@ -427,7 +447,8 @@ function render(){
       <button class="tab-btn ${STATE.view==="admin"?"active":""}" data-action="setView" data-v="admin">📋 농장 관리</button>
     </div></div>
     <main>
-      ${STATE.loadError && STATE.loadError!=="SETUP_NEEDED"?`<div class="setup-warning">${esc(STATE.loadError)}</div>`:""}
+      ${STATE.loadError && STATE.loadError!=="SETUP_NEEDED"?`<div class="setup-warning">${esc(STATE.loadError)} <button class="btn-ghost" style="margin-top:8px;width:100%;" data-action="retryLoad">다시 시도</button></div>`:""}
+      ${(!STATE.loaded && !STATE.loadError)?`<div class="empty-note">불러오는 중이에요…</div>`:""}
       ${STATE.saveError?`<div class="setup-warning">${esc(STATE.saveError)}</div>`:""}
       ${STATE.view==="order"?renderOrderArea():renderAdminArea()}
     </main>`;
@@ -628,16 +649,25 @@ function renderBuild(){
       <div class="section-label">장바구니 (${STATE.cart.length})</div>
       ${STATE.cart.map(ci=>{
         const f=fruitById(ci.fruitId);
-        return `<div class="cart-item">
+        const beingEdited = STATE.editingItemId===ci._id;
+        return `<div class="cart-item" style="${beingEdited?"border-color:var(--forest);box-shadow:0 0 0 2px rgba(36,64,47,.12);":""}">
           <div class="cart-item-top">
             <div style="min-width:0;">
-              <div style="font-weight:700;color:var(--forest);">${esc(f?f.name:"?")} × ${ci.qty}</div>
+              <div style="font-weight:700;color:var(--forest);">${esc(f?f.name:"?")}${beingEdited?` <span class="modified-badge">아래에서 수정 중</span>`:""}</div>
               <div class="badge">${methodLabel(ci.deliveryMethod)}${ci.isGift?" · 🎁 선물":""}</div>
             </div>
             <div class="tabular" style="font-weight:700;color:var(--persimmonDark);white-space:nowrap;">${won(itemTotal(ci))}</div>
           </div>
+          <div class="cart-qty-row">
+            <span class="cart-qty-label">수량</span>
+            <div class="stepper stepper-sm">
+              <button data-action="cartQtyMinus" data-id="${esc(ci._id)}" ${ci.qty<=1?"disabled":""}>−</button>
+              <span class="tabular stepper-val">${ci.qty}</span>
+              <button data-action="cartQtyPlus" data-id="${esc(ci._id)}">＋</button>
+            </div>
+          </div>
           <div style="display:flex;gap:8px;margin-top:10px;">
-            <button class="btn-ghost" style="font-size:12px;padding:6px 10px;" data-action="editCartItem" data-id="${esc(ci._id)}">수정</button>
+            <button class="btn-ghost" style="font-size:12px;padding:6px 10px;" data-action="editCartItem" data-id="${esc(ci._id)}">수령방법·선물 수정</button>
             <button class="btn-ghost danger" style="font-size:12px;padding:6px 10px;" data-action="removeCartItem" data-id="${esc(ci._id)}">빼기</button>
           </div>
         </div>`;
@@ -645,7 +675,7 @@ function renderBuild(){
       <div class="divider"></div>
     `:""}
 
-    <div class="section-label">${editingCartItem?"항목 수정":"과일 담기"}</div>
+    <div class="section-label" id="itemEditAnchor">${editingCartItem?"✏️ 항목 수정 중":"과일 담기"}</div>
     <div class="fruit-grid">
       ${activeFruits.map(fr=>`<div class="fruit-card ${fr.id===it.fruitId?"active":""}" data-action="pickFruit" data-id="${esc(fr.id)}">
         ${fr.image?`<div class="fruit-thumb"><img src="${esc(fr.image)}" alt="${esc(fr.name)}" loading="lazy"/></div>`:`<div class="fruit-thumb placeholder">🍎</div>`}
@@ -1254,6 +1284,7 @@ async function onAction(e){
   if(e.currentTarget.getAttribute("data-stop")) { e.stopPropagation(); return; }
   const el=e.currentTarget, action=el.getAttribute("data-action"), id=el.getAttribute("data-id"), v=el.getAttribute("data-v");
 
+  if(action==="retryLoad"){ setState({loadError:"",loaded:false}); await loadAll(); return; }
   if(action==="setView"){ setState({view:v}); loadAll(true); return; }
   if(action==="startNew"){ setState({buyer:{name:"",phone:"",referrer:""},buyerForm:{name:"",phone:"",referrer:"",err:false},cart:[],item:EMPTY_ITEM(),editingItemId:null,editingOrderId:null,editingCreatedAt:null,orderStep:"build"}); return; }
   if(action==="toggleNews"){ const id=el.getAttribute("data-id"); setState({openNewsId: id==="close"?null:"open"}); return; }
@@ -1272,6 +1303,16 @@ async function onAction(e){
   if(action==="addToCart"){ addToCart(); return; }
   if(action==="editCartItem"){ editCartItem(id); return; }
   if(action==="removeCartItem"){ STATE.cart=STATE.cart.filter(c=>c._id!==id); render(); return; }
+  if(action==="cartQtyMinus"||action==="cartQtyPlus"){
+    const d = action==="cartQtyPlus" ? 1 : -1;
+    STATE.cart = STATE.cart.map(c=> c._id===id ? {...c, qty: Math.max(1,(parseInt(c.qty)||1)+d)} : c);
+    // 아래 편집 폼에서 같은 항목을 수정 중이면 그 값도 함께 맞춰줌
+    if(STATE.editingItemId===id){
+      const t=STATE.cart.find(c=>c._id===id);
+      if(t) STATE.item={...STATE.item, qty:t.qty};
+    }
+    render(); return;
+  }
   if(action==="cancelCartEdit"){ STATE.item=EMPTY_ITEM(); STATE.editingItemId=null; render(); return; }
   if(action==="copyAccount"){ navigator.clipboard?.writeText(STATE.account.number); STATE.copied=true; render(); setTimeout(()=>{STATE.copied=false;render();},1500); return; }
   if(action==="submitOrder"){ await submitOrder(); return; }
@@ -1430,6 +1471,11 @@ function addToCart(){
 function editCartItem(id){
   const ci=STATE.cart.find(c=>c._id===id); if(!ci) return;
   STATE.item={...EMPTY_ITEM(),...ci,errors:{}}; STATE.editingItemId=id; render();
+  // 아래 편집 폼이 보이도록 스크롤 (수정 중인 줄 모르고 헤매지 않게)
+  setTimeout(()=>{
+    const el=document.getElementById("itemEditAnchor");
+    if(el && el.scrollIntoView) el.scrollIntoView({behavior:"smooth",block:"start"});
+  },50);
 }
 
 /* ---- submit ---- */
